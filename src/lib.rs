@@ -19,14 +19,14 @@
 //! #[derive(Debug,PartialEq, Eq,Default)]
 //! struct A;
 //! impl A {
-//!   fn to_b(self) -> B {
+//!   fn to_b(&mut self) -> B {
 //!     B
 //!   }
-//!   fn to_c(self) -> C {
+//!   fn to_c(&mut self) -> C {
 //!     C
 //!   }
-//!   fn try_from_beta(value: B)-> Result<Self, (B,())> {
-//!     Err((value, ()))
+//!   fn try_from_beta(value: &mut B)-> Result<Self, ()> {
+//!     Err(())
 //!   }
 //! }
 //!
@@ -38,7 +38,7 @@
 //! #[derive(Debug,PartialEq, Eq,Default)]
 //! struct C;
 //! impl C {
-//!   fn into_A(self)->A {
+//!   fn into_A(&mut self)->A {
 //!     A
 //!   }
 //! }

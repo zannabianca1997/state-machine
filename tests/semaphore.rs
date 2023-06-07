@@ -23,55 +23,46 @@ struct TooSoon {
     remaining: u8,
 }
 
-fn gy(time: u8) -> Result<u8, (u8, TooSoon)> {
-    if time == 0 {
+fn gy(time: &mut u8) -> Result<u8, TooSoon> {
+    if *time == 0 {
         Ok(5)
     } else {
-        Err((
-            time,
-            TooSoon {
-                from: SemaphoreState::Green,
-                to: SemaphoreState::Yellow,
-                remaining: time,
-            },
-        ))
+        Err(TooSoon {
+            from: SemaphoreState::Green,
+            to: SemaphoreState::Yellow,
+            remaining: *time,
+        })
     }
 }
 
-fn yr(time: u8) -> Result<u8, (u8, TooSoon)> {
-    if time == 0 {
+fn yr(time: &mut u8) -> Result<u8, TooSoon> {
+    if *time == 0 {
         Ok(30)
     } else {
-        Err((
-            time,
-            TooSoon {
-                from: SemaphoreState::Yellow,
-                to: SemaphoreState::Red,
-                remaining: time,
-            },
-        ))
+        Err(TooSoon {
+            from: SemaphoreState::Yellow,
+            to: SemaphoreState::Red,
+            remaining: *time,
+        })
     }
 }
 
-fn rg(time: u8) -> Result<u8, (u8, TooSoon)> {
-    if time == 0 {
+fn rg(time: &mut u8) -> Result<u8, TooSoon> {
+    if *time == 0 {
         Ok(30)
     } else {
-        Err((
-            time,
-            TooSoon {
-                from: SemaphoreState::Red,
-                to: SemaphoreState::Green,
-                remaining: time,
-            },
-        ))
+        Err(TooSoon {
+            from: SemaphoreState::Red,
+            to: SemaphoreState::Green,
+            remaining: *time,
+        })
     }
 }
 
-fn turn_on(_unit: ()) -> u8 {
+fn turn_on(_unit: &mut ()) -> u8 {
     30
 }
-fn turn_off(_time: u8) -> () {}
+fn turn_off(_time: &mut u8) -> () {}
 
 #[test]
 fn state() {
@@ -94,7 +85,7 @@ fn failed_transition() {
         sem.state_try_to_yellow(),
         Err(SemaphoreWrongState {
             method: "state_try_to_yellow",
-            valid: &[SemaphoreState::Green],
+            valid: &[SemaphoreState::Green, SemaphoreState::Yellow],
             found: SemaphoreState::Red
         })
     )
