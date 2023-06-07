@@ -58,14 +58,7 @@
 //! assert_eq!(SM::A(A).try_into_a(), Ok(A));
 //! assert_eq!(
 //!     SM::A(A).try_into_b(),
-//!     Err((
-//!         SM::A(A),
-//!         SMWrongState {
-//!             method: "try_into_b",
-//!             valid: &[SMState::B],
-//!             found: SMState::A
-//!         }
-//!     ))
+//!     Err(SM::A(A))
 //! );
 //!
 //! let mut sm = SM::A(A);

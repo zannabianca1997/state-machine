@@ -796,19 +796,13 @@ impl ToTokens for StateMachine {
             }
             if *try_into {
                 let fn_name = format_ident!("try_into_{snake_case_name}");
-                let fn_string_name = fn_name.to_string();
                 quote!(
                     #[inline]
-                    pub fn #fn_name(self) -> ::std::result::Result<#content, (Self, #wrong_state_error)> {
+                    pub fn #fn_name(self) -> ::std::result::Result<#content, Self> {
                         if let Self::#name(content) = self {
                             ::std::result::Result::Ok(content)
                         } else {
-                            let found = self.state();
-                            ::std::result::Result::Err((self, #wrong_state_error {
-                                method: #fn_string_name,
-                                valid: &[#state_enum::#name],
-                                found
-                            }))
+                            ::std::result::Result::Err(self)
                         }
                     }
                 )
@@ -830,16 +824,16 @@ impl ToTokens for StateMachine {
                 let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
                     #[inline]
-                    pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
+                    pub fn #fn_name(&mut self) ->::std::result::Result<&mut Self,  #wrong_state_error> {
                         let content = self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})?;
                         *self = Self::#to((#fun)(content));
-                        ::std::result::Result::Ok(())
+                        ::std::result::Result::Ok(self)
                     }
                     #[inline]
-                    pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<(), ::std::convert::Infallible>,  #wrong_state_error> {
+                    pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<&mut Self, ::std::convert::Infallible>,  #wrong_state_error> {
                         let content = self.#as_mut().map_err(|mut err| {err.method = #fallible_fn_string_name; err})?;
                         *self = Self::#to((#fun)(content));
-                        ::std::result::Result::Ok(::std::result::Result::Ok(()))
+                        ::std::result::Result::Ok(::std::result::Result::Ok(self))
                     }
                 )
                 .to_tokens(&mut sm_impl);
@@ -858,7 +852,7 @@ impl ToTokens for StateMachine {
                 let is = format_ident!("is_{snake_case_name}");
                 quote!(
                     #[inline]
-                    pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
+                    pub fn #fn_name(&mut self) ->::std::result::Result<&mut Self,  #wrong_state_error> {
                         if !self.#is() {
                             return ::std::result::Result::Err(#wrong_state_error {
                                 method: #fn_string_name,
@@ -866,10 +860,10 @@ impl ToTokens for StateMachine {
                                 found: self.state()
                             })
                         }
-                        ::std::result::Result::Ok(())
+                        ::std::result::Result::Ok(self)
                     }
                     #[inline]
-                    pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<(), ::std::convert::Infallible>,  #wrong_state_error> {
+                    pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<&mut Self, ::std::convert::Infallible>,  #wrong_state_error> {
                         if !self.#is() {
                             return ::std::result::Result::Err(#wrong_state_error {
                                 method: #fallible_fn_string_name,
@@ -877,7 +871,7 @@ impl ToTokens for StateMachine {
                                 found: self.state()
                             })
                         }
-                        ::std::result::Result::Ok(::std::result::Result::Ok(()))
+                        ::std::result::Result::Ok(::std::result::Result::Ok(self))
                     }
                 )
                 .to_tokens(&mut sm_impl);
@@ -893,13 +887,13 @@ impl ToTokens for StateMachine {
                 let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
                     #[inline]
-                    pub fn #fn_name(&mut self) ->::std::result::Result<Result<(), #err>,  #wrong_state_error> {
+                    pub fn #fn_name(&mut self) ->::std::result::Result<Result<&mut Self, #err>,  #wrong_state_error> {
                         let content = self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})?;
                         match (#fun)(content) {
                             ::std::result::Result::Ok(new_content) => {
                                 *self = Self::#to(new_content);
                                 ::std::result::Result::Ok(
-                                    ::std::result::Result::Ok(())
+                                    ::std::result::Result::Ok(self)
                                 )
                             },
                             ::std::result::Result::Err(err) => {
@@ -939,7 +933,7 @@ impl ToTokens for StateMachine {
                     let fn_name = format_ident!("state_to_{snake_case_name}");
                     let fn_string_name = fn_name.to_string();
                     quote!(
-                        pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
+                        pub fn #fn_name(&mut self) ->::std::result::Result<&mut Self,  #wrong_state_error> {
                             match self {
                                 #(Self::#sources(_)=>::std::result::Result::Ok(self.#transitions().unwrap()),)*
                                 _=>::std::result::Result::Err(#wrong_state_error {
@@ -1002,7 +996,7 @@ impl ToTokens for StateMachine {
                     let fn_name = format_ident!("state_try_to_{snake_case_name}");
                     let fn_string_name = fn_name.to_string();
                     quote!(
-                        pub fn #fn_name(&mut self) ->::std::result::Result<::std::result::Result<(), #error>,  #wrong_state_error> {
+                        pub fn #fn_name(&mut self) ->::std::result::Result<::std::result::Result<&mut Self, #error>,  #wrong_state_error> {
                             match self {
                                 // all infallible transitions with double Oks
                                 #(Self::#infallible_sources(_)=>::std::result::Result::Ok(::std::result::Result::Ok(self.#infallible_transitions().unwrap())),)*
