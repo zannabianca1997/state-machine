@@ -664,15 +664,22 @@ impl ToTokens for StateMachine {
                     to.to_string().from_case(Case::Pascal).to_case(Case::Snake)
                 );
                 let fn_string_name = fn_name.to_string();
-                let as_mut = {
-                    let fn_name = format_ident!("as_{snake_case_name}_mut");
-                    quote!(self.#fn_name()?)
-                };
+                let fallible_fn_name = format_ident!(
+                    "try_from_{snake_case_name}_to_{}",
+                    to.to_string().from_case(Case::Pascal).to_case(Case::Snake)
+                );
+                let fallible_fn_string_name = fallible_fn_name.to_string();
+                let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
                     pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
-                        let content = ::std::mem::take(#as_mut);
+                        let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})? );
                         *self = Self::#to((#fun)(content));
                         ::std::result::Result::Ok(())
+                    }
+                    pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<(), ::std::convert::Infallible>,  #wrong_state_error> {
+                        let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fallible_fn_string_name; err})? );
+                        *self = Self::#to((#fun)(content));
+                        ::std::result::Result::Ok(::std::result::Result::Ok(()))
                     }
                 )
                 .to_tokens(&mut sm_impl);
