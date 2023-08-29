@@ -69,8 +69,10 @@
 //! );
 //!
 //! let mut sm = SM::A(A);
-//! sm.from_a_to_b().unwrap();
-//! assert!(sm.is_b())
+//! sm.state_to_c().unwrap();
+//! assert!(sm.is_c());
+//! sm.from_c_to_a().unwrap();
+//! assert!(sm.is_a())
 //! ```
 #![feature(if_let_guard)]
 #![feature(iterator_try_collect)]

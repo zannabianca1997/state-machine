@@ -45,8 +45,10 @@ struct StateMachineDef {
     as_mut: Option<bool>,
     /// derive `try_into_*` methods
     try_into: Option<bool>,
-    /// default error type for fallible conversione
+    /// default error type for fallible conversions
     error: Option<Type>,
+    /// derive `state_to_*` metods
+    state_to: Option<bool>,
 }
 
 #[derive(Debug, FromMeta, Default)]
@@ -101,6 +103,8 @@ struct StateDef {
     as_mut: Option<bool>,
     /// derive `try_into_*` methods
     try_into: Option<bool>,
+    /// derive `state_to_*` metod
+    state_to: Option<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -305,6 +309,8 @@ struct State {
     as_mut: bool,
     /// derive `try_into_*` method
     try_into: bool,
+    /// derive `state_to_*` method
+    state_to: bool,
 }
 impl State {
     fn from_def(
@@ -317,12 +323,14 @@ impl State {
             r#as,
             as_mut,
             try_into,
+            state_to,
         }: StateDef,
         sm_is: bool,
         sm_as: bool,
         sm_as_mut: bool,
         sm_try_into: bool,
         sm_err: Option<&Type>,
+        sm_state_to: bool,
     ) -> syn::Result<Self> {
         let content = fields.fields.into_iter().next().unwrap();
         Ok(Self {
@@ -342,6 +350,7 @@ impl State {
             r#as: r#as.unwrap_or(sm_as),
             as_mut: as_mut.unwrap_or(sm_as_mut),
             try_into: try_into.unwrap_or(sm_try_into),
+            state_to: state_to.unwrap_or(sm_state_to),
         })
     }
 }
@@ -444,12 +453,14 @@ impl TryFrom<StateMachineDef> for StateMachine {
             as_mut,
             try_into,
             error,
+            state_to,
         }: StateMachineDef,
     ) -> Result<Self, Self::Error> {
         let is = is.unwrap_or(true);
         let r#as = r#as.unwrap_or(true);
         let as_mut = as_mut.unwrap_or(true);
         let try_into = try_into.unwrap_or(true);
+        let state_to = state_to.unwrap_or(true);
         Ok(Self {
             state_enum: StatesEnum::from_def(state_enum, &ident, vis.clone()),
             state_trait: StateTrait::from_def(state_trait, &ident, vis.clone()),
@@ -459,7 +470,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
                 .take_enum()
                 .unwrap()
                 .into_iter()
-                .map(|s| State::from_def(s, is, r#as, as_mut, try_into, error.as_ref()))
+                .map(|s| State::from_def(s, is, r#as, as_mut, try_into, error.as_ref(), state_to))
                 .collect_syn_errors()?,
         })
     }
@@ -554,6 +565,7 @@ impl ToTokens for StateMachine {
             r#as,
             as_mut,
             try_into,
+            state_to,
         } in states
         {
             // Trait impl
@@ -652,21 +664,9 @@ impl ToTokens for StateMachine {
                     to.to_string().from_case(Case::Pascal).to_case(Case::Snake)
                 );
                 let fn_string_name = fn_name.to_string();
-                let as_mut = if *as_mut {
-                    // using the as_*_mut impl
+                let as_mut = {
                     let fn_name = format_ident!("as_{snake_case_name}_mut");
                     quote!(self.#fn_name()?)
-                } else {
-                    // building a local as_*_mut
-                    quote!(if let Self::#name(content) = self {
-                        content
-                    } else {
-                        return ::std::result::Result::Err(#wrong_state_error {
-                            method: #fn_string_name,
-                            valid: &[#state_enum::#name],
-                            found: self.state()
-                        });
-                    })
                 };
                 quote!(
                     pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
@@ -717,6 +717,44 @@ impl ToTokens for StateMachine {
                                     ::std::result::Result::Err(err)
                                 )
                             }
+                        }
+                    }
+                )
+                .to_tokens(&mut sm_impl);
+            }
+
+            // global infallible state transition
+            if *state_to {
+                // All the states that can transition to this
+                let sources: Vec<_> = states
+                    .iter()
+                    .filter_map(|State { name: from, to, .. }| {
+                        if to.iter().any(|Dest { to, .. }| to == name) {
+                            Some(from)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let transitions = sources.iter().map(|from| {
+                    format_ident!(
+                        "from_{}_to_{snake_case_name}",
+                        from.to_string()
+                            .from_case(Case::Pascal)
+                            .to_case(Case::Snake)
+                    )
+                });
+                let fn_name = format_ident!("state_to_{snake_case_name}");
+                let fn_string_name = fn_name.to_string();
+                quote!(
+                    pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
+                        match self {
+                            #(Self::#sources(_)=>::std::result::Result::Ok(self.#transitions().unwrap()),)*
+                            _=>::std::result::Result::Err(#wrong_state_error {
+                                method: #fn_string_name,
+                                valid: &[#(#state_enum::#sources),*],
+                                found: self.state()
+                            })
                         }
                     }
                 )
