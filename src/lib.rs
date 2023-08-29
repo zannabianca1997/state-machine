@@ -4,27 +4,73 @@
 //! use state_machine::StateMachine;
 //!
 //! /// My state machine
-//! #[derive(StateMachine)]
+//! #[derive(Debug, PartialEq, Eq, StateMachine)]
+//! #[state_machine(error="()")]
 //! enum SM {
 //!   #[state(to(B,C))]
 //!   A(A),
-//!   #[state(try_to(A = A::from_B))]
+//!   #[state(try_to(A = A::try_from_beta))]
 //!   B(B),
-//!   #[state(to(A = C::into_A), try_into)]
+//!   #[state(to(A = C::into_A))]
 //!   C(C)
 //! }
 //!
 //! /// Data of the state A
+//! #[derive(Debug,PartialEq, Eq,Default)]
 //! struct A;
+//! impl A {
+//!   fn to_b(self) -> B {
+//!     B
+//!   }
+//!   fn to_c(self) -> C {
+//!     C
+//!   }
+//!   fn try_from_beta(value: B)-> Result<Self, (B,())> {
+//!     Err((value, ()))
+//!   }
+//! }
 //!
 //! /// Data of the state B
+//! #[derive(Debug,PartialEq, Eq,Default)]
 //! struct B;
 //!
 //! /// Data of the state C
+//! #[derive(Debug,PartialEq, Eq,Default)]
 //! struct C;
+//! impl C {
+//!   fn into_A(self)->A {
+//!     A
+//!   }
+//! }
 //!
-//! assert_eq!(SM::A(A).state(), SMState::A)
+//! assert_eq!(SM::A(A).state(), SMState::A);
+//! assert!(SM::A(A).is_a());
+//! assert!(!SM::A(A).is_b());
+//! assert_eq!(SM::A(A).as_a(), Ok(&A));
+//! assert_eq!(
+//!     SM::A(A).as_b(),
+//!     Err(SMWrongState {
+//!         method: "as_b",
+//!         valid: &[SMState::B],
+//!         found: SMState::A
+//!     })
+//! );
+//! assert_eq!(SM::A(A).try_into_a(), Ok(A));
+//! assert_eq!(
+//!     SM::A(A).try_into_b(),
+//!     Err((
+//!         SM::A(A),
+//!         SMWrongState {
+//!             method: "try_into_b",
+//!             valid: &[SMState::B],
+//!             found: SMState::A
+//!         }
+//!     ))
+//! );
 //!
+//! let mut sm = SM::A(A);
+//! sm.from_a_to_b().unwrap();
+//! assert!(sm.is_b())
 //! ```
 #![feature(if_let_guard)]
 #![feature(iterator_try_collect)]
