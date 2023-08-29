@@ -1,0 +1,15 @@
+[package]
+name = "state-machine"
+version = "0.1.0"
+edition = "2021"
+description = "A state machine Rust library"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+convert_case = "0.6.0"
+darling = "0.20.3"
+proc-macro2 = "1.0.66"
+quote = "1.0.33"
+syn = "2.0.29"
