@@ -120,7 +120,11 @@ fn test_run() {
 fn infallible_as_fallible() {
     let mut sem = Semaphore::Off(());
     sem.from_off_to_off().unwrap();
+    assert!(sem.is_off());
     sem.try_from_off_to_off().unwrap().unwrap();
+    assert!(sem.is_off());
     sem.state_to_off().unwrap();
+    assert!(sem.is_off());
     sem.state_try_to_off().unwrap().unwrap();
+    assert!(sem.is_off());
 }
