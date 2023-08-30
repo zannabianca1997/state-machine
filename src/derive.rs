@@ -696,7 +696,6 @@ impl ToTokens for StateMachine {
             state_try_to,
         } in states
         {
-            dbg!(name.to_string());
             let StatesEnum {
                 name: state_enum, ..
             } = state_enum;
@@ -809,25 +808,10 @@ impl ToTokens for StateMachine {
                     to.to_string().from_case(Case::Pascal).to_case(Case::Snake)
                 );
                 let fn_string_name = fn_name.to_string();
-                let as_mut = if *as_mut {
-                    // using the as_*_mut impl
-                    let fn_name = format_ident!("as_{snake_case_name}_mut");
-                    quote!(self.#fn_name()?)
-                } else {
-                    // building a local as_*_mut
-                    quote!(if let Self::#name(content) = self {
-                        content
-                    } else {
-                        return ::std::result::Result::Err(#wrong_state_error {
-                            method: #fn_string_name,
-                            valid: &[#state_enum::#name],
-                            found: self.state()
-                        });
-                    })
-                };
+                let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
                     pub fn #fn_name(&mut self) ->::std::result::Result<Result<(), #err>,  #wrong_state_error> {
-                        let content = ::std::mem::take(#as_mut);
+                        let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})? );
                         match (#fun)(content) {
                             ::std::result::Result::Ok(new_content) => {
                                 *self = Self::#to(new_content);
