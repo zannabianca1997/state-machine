@@ -1,18 +1,15 @@
 use convert_case::{Case, Casing};
 use darling::{
     ast::{Data, Fields, NestedMeta},
+    util::SpannedValue,
     FromDeriveInput, FromMeta, FromVariant,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
-    parse_quote, punctuated::Punctuated, Attribute, DeriveInput, Expr, ExprPath, Ident, Meta,
-    MetaList, MetaNameValue, Path, PathSegment, Type, Visibility,
+    punctuated::Punctuated, Attribute, DeriveInput, Expr, ExprLit, ExprPath, Ident, Lit, Meta, MetaList, MetaNameValue, Path, PathSegment, Type,
+    Visibility, parse_quote,
 };
-
-// TODO: Setup and emit the MachineStateContent trait
-// TODO: Setup and emit the MachineStateResult type
-// TODO: Emit the methods
 
 /// Definition of the state machine
 #[derive(Debug, FromDeriveInput)]
@@ -49,9 +46,45 @@ struct StateMachineDef {
     error: Option<Type>,
     /// derive `state_to_*` metods
     state_to: Option<bool>,
+    /// derive `state_try_to_*` metods
+    state_try_to: Option<darling::util::SpannedValue<StateTryToDef>>,
+}
+impl Eq for StateMachineDef {
+    
+}
+impl PartialEq for StateMachineDef {
+    fn eq(&self, other: &Self) -> bool {
+        self.ident == other.ident && self.vis == other.vis && self.data == other.data && self.state_enum == other.state_enum && self.state_trait == other.state_trait && self.wrong_state_error == other.wrong_state_error && self.is == other.is && self.r#as == other.r#as && self.as_mut == other.as_mut && self.try_into == other.try_into && self.error == other.error && self.state_to == other.state_to && self.state_try_to.as_deref() == other.state_try_to.as_deref()
+    }
 }
 
-#[derive(Debug, FromMeta, Default)]
+#[derive(Debug, Clone,PartialEq, Eq)]
+enum StateTryToDef {
+    DoNotEmit,
+    Emit { error: Option<Type> },
+}
+impl FromMeta for StateTryToDef {
+    fn from_word() -> darling::Result<Self> {
+        Ok(Self::Emit { error: None })
+    }
+    fn from_bool(value: bool) -> darling::Result<Self> {
+        if value {
+            Ok(Self::Emit { error: None })
+        } else {
+            Ok(Self::DoNotEmit)
+        }
+    }
+    fn from_meta(item: &Meta) -> darling::Result<Self> {
+        #[derive(FromMeta)]
+        struct Emit {
+            error: Option<Type>,
+        }
+
+        let Emit { error } = Emit::from_meta(item)?;
+        Ok(Self::Emit { error })
+    }
+}
+#[derive(Debug, FromMeta, Default,PartialEq, Eq)]
 struct StateEnumDef {
     /// Name of the state enum
     name: Option<Ident>,
@@ -61,7 +94,7 @@ struct StateEnumDef {
     #[darling(multiple)]
     attrs: Vec<Meta>,
 }
-#[derive(Debug, FromMeta, Default)]
+#[derive(Debug, FromMeta, Default, PartialEq, Eq)]
 struct StateTraitDef {
     /// Name of the state trait
     name: Option<Ident>,
@@ -69,7 +102,7 @@ struct StateTraitDef {
     vis: Option<Visibility>,
 }
 
-#[derive(Debug, FromMeta, Default)]
+#[derive(Debug, FromMeta, Default,PartialEq, Eq)]
 struct WrongStateErrorDef {
     /// Name of the state enum
     name: Option<Ident>,
@@ -90,11 +123,11 @@ struct StateDef {
     /// Field of the variant
     fields: Fields<Type>,
     /// list of infallible transitions
-    #[darling(default)]
-    to: DestsDef,
+    #[darling(multiple)]
+    to:Vec< ToDef>,
     /// list of fallible transitions
-    #[darling(default)]
-    try_to: DestsDef,
+    #[darling(multiple)]
+    try_to: Vec<TryToDef>,
     /// derive `is_*` methods
     is: Option<bool>,
     /// derive `as_*` methods
@@ -105,69 +138,126 @@ struct StateDef {
     try_into: Option<bool>,
     /// derive `state_to_*` metod
     state_to: Option<bool>,
+    /// derive `state_try_to_*` metods
+    state_try_to: Option<SpannedValue<StateTryToDef>>,
+}impl Eq for StateDef {
+    
+}
+impl PartialEq for StateDef {
+    fn eq(&self, other: &Self) -> bool {
+        self.ident == other.ident && self.fields == other.fields && self.to == other.to && self.try_to == other.try_to && self.is == other.is && self.r#as == other.r#as && self.as_mut == other.as_mut && self.try_into == other.try_into && self.state_to == other.state_to && self.state_try_to.as_deref() == other.state_try_to.as_deref()
+    }
 }
 
-#[derive(Debug, Default)]
-struct DestsDef(Vec<DestDef>);
-impl FromMeta for DestsDef {
+#[derive(Debug, Default,PartialEq, Eq)]
+struct ToDef(Vec<DestDef>);
+
+impl FromMeta for ToDef {
     fn from_list(items: &[NestedMeta]) -> darling::Result<Self> {
-        Ok(DestsDef(
+        Ok(Self(
             items
                 .into_iter()
-                .map(DestDef::from_nested_meta)
-                .try_collect()?,
+                .map(|item| match item {
+                    // simple bare variant
+                    NestedMeta::Meta(Meta::Path(path)) if let Some(to) = path.get_ident() => Ok(DestDef { to: to.clone(), fun: None }),
+                    NestedMeta::Meta(Meta::Path(path))  => Err(darling::Error::custom("Must be a enum variant").with_span(path)),
+                    // string enum variant
+                    NestedMeta::Lit(syn::Lit::Str(s)) => Ok(DestDef {
+                        to: s.parse().map_err(darling::Error::custom)?,
+                        fun: None,
+                    }),
+                    NestedMeta::Lit(lit) => Err(darling::Error::unexpected_lit_type(lit)),
+                    // value with a function
+                    NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, value,.. })) => {
+                        let Some(to) = path.get_ident() else {return Err(darling::Error::custom("Must be a enum variant").with_span(path));};
+                        let fun = fun_from_exp(value)?;
+                        Ok(DestDef { to:to.clone(), fun: Some(fun)  })
+                    }
+                    // complex setup
+                    NestedMeta::Meta(meta @ Meta::List(MetaList { path,.. })) => {
+                        let Some(to) = path.get_ident() else {return Err(darling::Error::custom("Must be a enum variant").with_span(path));};
+                        #[derive(FromMeta)]
+                        struct Content {
+                            fun: Option<Expr>,
+                        }
+                        let Content { fun } = Content::from_meta(meta)?;
+                        Ok(DestDef { to: to.clone(), fun })
+                    
+                    }
+                })
+                .collect_darling_errors()?,
         ))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Default,PartialEq, Eq)]
+struct TryToDef(Vec<FallibleDestDef>);
+
+impl FromMeta for TryToDef {
+    fn from_list(items: &[NestedMeta]) -> darling::Result<Self> {
+        Ok(Self(
+            items
+                .into_iter()
+                .map(|item| match item {
+                    // simple bare variant
+                    NestedMeta::Meta(Meta::Path(path)) if let Some(to) = path.get_ident() => Ok(FallibleDestDef { to: to.clone(), fun: None,err:None }),
+                    NestedMeta::Meta(Meta::Path(path))  => Err(darling::Error::custom("Must be a enum variant").with_span(path)),
+                    // string enum variant
+                    NestedMeta::Lit(syn::Lit::Str(s)) => Ok(FallibleDestDef {
+                        to: s.parse().map_err(darling::Error::custom)?,
+                        fun: None,
+                        err:None,
+                    }),
+                    NestedMeta::Lit(lit) => Err(darling::Error::unexpected_lit_type(lit)),
+                    // value with a function
+                    NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, value,.. })) => {
+                        let Some(to) = path.get_ident() else {return Err(darling::Error::custom("Must be a enum variant").with_span(path));};
+                        let fun = fun_from_exp(value)?;
+                        Ok(FallibleDestDef { to:to.clone(), fun: Some(fun), err:None  })
+                    }
+                    // complex setup
+                    NestedMeta::Meta(meta @ Meta::List(MetaList { path,.. })) => {
+                        let Some(to) = path.get_ident() else {return Err(darling::Error::custom("Must be a enum variant").with_span(path));};
+                        #[derive(FromMeta)]
+                        struct Content {
+                            fun: Option<Expr>,
+                            err: Option<Type>,
+                        }
+                        let Content { fun,err } = Content::from_meta(meta)?;
+                        Ok(FallibleDestDef { to: to.clone(), fun,err })
+                    
+                    }
+                })
+                .collect_darling_errors()?,
+        ))
+    }
+}
+
+/// Extract a function expression from a expression
+fn fun_from_exp(expr: &Expr) -> darling::Result<Expr> {
+    match expr {
+        Expr::Group(group) => fun_from_exp(&group.expr),
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(s), ..
+        }) => {
+            let expr: Expr = s
+                .parse()
+                .map_err(|err| darling::Error::custom(err).with_span(s))?;
+            fun_from_exp(&expr)
+        }
+        other => Ok(other.clone()),
+    }
+}
+
+#[derive(Debug,PartialEq, Eq)]
 struct DestDef {
     to: Ident,
     fun: Option<Expr>,
-    err: Option<Type>,
 }
-impl FromMeta for DestDef {
-    fn from_nested_meta(item: &NestedMeta) -> darling::Result<Self> {
-        (match item {
-            NestedMeta::Meta(Meta::Path(path)) if let Some(ident) = path.get_ident() => Ok(DestDef{to:ident.clone(), fun:None, err:None}),
-            NestedMeta::Meta(Meta::NameValue(MetaNameValue{ path, value:fun,.. })) if let Some(name) = path.get_ident() => Ok(DestDef{to:name.clone(), fun:Some(fun.clone()),err:None}),
-            NestedMeta::Meta(meta @ Meta::List(MetaList { path, .. }))if let Some(name) = path.get_ident()=> {
-                #[derive(FromMeta)]
-                struct DestData {
-                    fun: Option<Expr>,
-                    err: Option<Type>,
-                }
-
-                 DestData::from_meta(meta).map(|DestData { fun, err }| DestDef { to: name.clone(), fun, err })
-            }
-        _ => Err(darling::Error::custom("Expected `State`, `State = path::to::fun` or `State(fun=.., err=..)`")),
-    })
-        .map_err(|e| e.with_span(item))
-    }
-}
-#[derive(Debug)]
+#[derive(Debug,PartialEq, Eq)]
 struct FallibleDestDef {
     to: Ident,
     fun: Option<Expr>,
     err: Option<Type>,
-}
-impl FromMeta for FallibleDestDef {
-    fn from_nested_meta(item: &NestedMeta) -> darling::Result<Self> {
-        (match item {
-            NestedMeta::Meta(Meta::Path(path)) if let Some(ident) = path.get_ident() => Ok(FallibleDestDef{to:ident.clone(), fun:None, err:None}),
-            NestedMeta::Meta(Meta::NameValue(MetaNameValue{ path, value:fun,.. })) if let Some(name) = path.get_ident() => Ok(FallibleDestDef{to:name.clone(), fun:Some(fun.clone()),err:None}),
-            NestedMeta::Meta(meta @ Meta::List(MetaList { path, .. }))if let Some(name) = path.get_ident()=> {
-                #[derive(FromMeta)]
-                struct DestData {
-                    fun: Option<Expr>,
-                    err: Option<Type>,
-                }
-
-                 DestData::from_meta(meta).map(|DestData { fun, err }| FallibleDestDef { to: name.clone(), fun, err })
-            }
-        _ => Err(darling::Error::custom("Expected `State`, `State = path::to::fun` or `State(fun=.., err=..)`")),
-    })
-        .map_err(|e| e.with_span(item))
-    }
 }
 
 struct StateMachine {
@@ -311,6 +401,8 @@ struct State {
     try_into: bool,
     /// derive `state_to_*` method
     state_to: bool,
+    /// derive `state_try_to_*` method
+    state_try_to: Option<StateTryTo>,
 }
 impl State {
     fn from_def(
@@ -324,6 +416,7 @@ impl State {
             as_mut,
             try_into,
             state_to,
+            state_try_to,
         }: StateDef,
         sm_is: bool,
         sm_as: bool,
@@ -331,17 +424,16 @@ impl State {
         sm_try_into: bool,
         sm_err: Option<&Type>,
         sm_state_to: bool,
+        sm_state_try_to: Option<&SpannedValue<StateTryToDef>>,
     ) -> syn::Result<Self> {
         let content = fields.fields.into_iter().next().unwrap();
         Ok(Self {
             to: to
-                .0
-                .into_iter()
+                .into_iter().flat_map(|i| i.0)
                 .map(|d| Dest::from_def(d, &content))
                 .collect(),
             try_to: try_to
-                .0
-                .into_iter()
+                .into_iter().flat_map(|i| i.0)
                 .map(|d| FallibleDest::from_def(d, &content, sm_err))
                 .collect_syn_errors()?,
             name: ident,
@@ -351,8 +443,69 @@ impl State {
             as_mut: as_mut.unwrap_or(sm_as_mut),
             try_into: try_into.unwrap_or(sm_try_into),
             state_to: state_to.unwrap_or(sm_state_to),
+            state_try_to: {
+                // does the state specify the transitions?
+                if let Some(state_try_to) = state_try_to {
+                    match &*state_try_to {
+                        StateTryToDef::DoNotEmit => None,
+                        StateTryToDef::Emit { error: Some(error) } => Some(StateTryTo {
+                            error: error.clone(),
+                        }),
+                        StateTryToDef::Emit { error: None } => {
+                            // did we set it in global?
+                            if let Some(StateTryToDef::Emit { error: Some(error) }) =
+                                sm_state_try_to.map(|s| &**s)
+                            {
+                                Some(StateTryTo {
+                                    error: error.clone(),
+                                })
+                            } else if let Some(error) = sm_err {
+                                Some(StateTryTo {
+                                    error: error.clone(),
+                                })
+                            } else {
+                                return Err(syn::Error::new(
+                                    state_try_to.span(),
+                                    "Missing error type",
+                                ));
+                            }
+                        }
+                    }
+                } else if let Some(sm_state_try_to) = sm_state_try_to {
+                    match &**sm_state_try_to {
+                        StateTryToDef::DoNotEmit => None,
+                        StateTryToDef::Emit { error: Some(error) } => Some(StateTryTo {
+                            error: error.clone(),
+                        }),
+                        StateTryToDef::Emit { error: None } => {
+                            // did we set the global error
+                            if let Some(error) = sm_err {
+                                Some(StateTryTo {
+                                    error: error.clone(),
+                                })
+                            } else {
+                                return Err(syn::Error::new(
+                                    sm_state_try_to.span(),
+                                    "Missing error type",
+                                ));
+                            }
+                        }
+                    }
+                } else if let Some(error) = sm_err {
+                    Some(StateTryTo {
+                        error: error.clone(),
+                    })
+                } else {
+                    None
+                }
+            },
         })
     }
+}
+
+#[derive(Debug, Clone)]
+struct StateTryTo {
+    error: Type,
 }
 
 struct Dest {
@@ -360,7 +513,7 @@ struct Dest {
     fun: Expr,
 }
 impl Dest {
-    fn from_def(DestDef { to, fun, err }: DestDef, from: &Type) -> Self {
+    fn from_def(DestDef { to, fun }: DestDef, from: &Type) -> Self {
         Self {
             fun: fun.unwrap_or_else(|| {
                 let fn_name = format_ident!(
@@ -396,7 +549,7 @@ struct FallibleDest {
 }
 impl FallibleDest {
     fn from_def(
-        DestDef { to, fun, err }: DestDef,
+        FallibleDestDef { to, fun, err }: FallibleDestDef,
         from: &Type,
         sm_err: Option<&Type>,
     ) -> syn::Result<Self> {
@@ -454,6 +607,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
             try_into,
             error,
             state_to,
+            state_try_to,
         }: StateMachineDef,
     ) -> Result<Self, Self::Error> {
         let is = is.unwrap_or(true);
@@ -470,7 +624,18 @@ impl TryFrom<StateMachineDef> for StateMachine {
                 .take_enum()
                 .unwrap()
                 .into_iter()
-                .map(|s| State::from_def(s, is, r#as, as_mut, try_into, error.as_ref(), state_to))
+                .map(|s| {
+                    State::from_def(
+                        s,
+                        is,
+                        r#as,
+                        as_mut,
+                        try_into,
+                        error.as_ref(),
+                        state_to,
+                        state_try_to.as_ref(),
+                    )
+                })
                 .collect_syn_errors()?,
         })
     }
@@ -499,6 +664,16 @@ impl ToTokens for StateMachine {
                 }
             )
             .to_tokens(tokens);
+            // state getter
+            let state_names = states.iter().map(|State { name, .. }| name);
+            quote!(
+                pub const fn state(&self) -> #name {
+                    match self {
+                        #(Self::#state_names(_)=>#name::#state_names),*
+                    }
+                }
+            )
+            .to_tokens(&mut sm_impl);
         }
         // state trait
         {
@@ -566,6 +741,7 @@ impl ToTokens for StateMachine {
             as_mut,
             try_into,
             state_to,
+            state_try_to,
         } in states
         {
             // Trait impl
@@ -743,6 +919,9 @@ impl ToTokens for StateMachine {
                         }
                     })
                     .collect();
+                if sources.is_empty() {
+                    break;
+                }
                 let transitions = sources.iter().map(|from| {
                     format_ident!(
                         "from_{}_to_{snake_case_name}",
@@ -767,30 +946,75 @@ impl ToTokens for StateMachine {
                 )
                 .to_tokens(&mut sm_impl);
             }
-        }
-        // Various impl functions
-        {
-            let StateTrait {
-                name: state_trait, ..
-            } = state_trait;
-            let StatesEnum {
-                name: state_enum, ..
-            } = state_enum;
-            let WrongStateError {
-                name: wrong_state_error,
-                ..
-            } = wrong_state_error;
-            // state getter
-            let state_names = states.iter().map(|State { name, .. }| name);
-            quote!(
-                pub const fn state(&self) -> #state_enum {
-                    match self {
-                        #(Self::#state_names(_)=>#state_enum::#state_names),*
-                    }
+
+            // global infallible state transition
+            if let Some(StateTryTo { error }) = state_try_to {
+                // All the states that can transition infallibly to this
+                let infallible_sources: Vec<_> = states
+                    .iter()
+                    .filter_map(|State { name: from, to, .. }| {
+                        if to.iter().any(|Dest { to, .. }| to == name) {
+                            Some(from)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let fallible_sources: Vec<_> = states
+                    .iter()
+                    .filter_map(
+                        |State {
+                             name: from, try_to, ..
+                         }| {
+                            if try_to.iter().any(|FallibleDest { to, .. }| to == name) {
+                                Some(from)
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                    .collect();
+                if infallible_sources.is_empty() && fallible_sources.is_empty() {
+                    break;
                 }
-            )
-            .to_tokens(&mut sm_impl);
+                let infallible_transitions = infallible_sources.iter().map(|from| {
+                    format_ident!(
+                        "from_{}_to_{snake_case_name}",
+                        from.to_string()
+                            .from_case(Case::Pascal)
+                            .to_case(Case::Snake)
+                    )
+                });
+                let fallible_transitions = fallible_sources.iter().map(|from| {
+                    format_ident!(
+                        "try_from_{}_to_{snake_case_name}",
+                        from.to_string()
+                            .from_case(Case::Pascal)
+                            .to_case(Case::Snake)
+                    )
+                });
+                let fn_name = format_ident!("state_try_to_{snake_case_name}");
+                let fn_string_name = fn_name.to_string();
+                quote!(
+                    pub fn #fn_name(&mut self) ->::std::result::Result<::std::result::Result<(), #error>,  #wrong_state_error> {
+                        match self {
+                            // all infallible transitions with double Oks
+                            #(Self::#infallible_sources(_)=>::std::result::Result::Ok(::std::result::Result::Ok(self.#infallible_transitions().unwrap())),)*
+                            // all fallible transitions
+                            #(Self::#fallible_sources(_)=>::std::result::Result::Ok(self.#fallible_transitions().unwrap().map_err(::std::convert::Into::into)),)*
+
+                            _=>::std::result::Result::Err(#wrong_state_error {
+                                method: #fn_string_name,
+                                valid: &[#(#state_enum::#fallible_sources,)* #(#state_enum::#infallible_sources),*],
+                                found: self.state()
+                            })
+                        }
+                    }
+                )
+                .to_tokens(&mut sm_impl);
+            }
         }
+        
 
         quote!(
             #[automatically_derived]
@@ -844,5 +1068,26 @@ where
         } else {
             Ok(collected)
         }
+    }
+}
+
+trait CollectDarlingErrors<I> {
+    fn collect_darling_errors<C>(self) -> darling::Result<C>
+    where
+        C: FromIterator<I>;
+}
+
+impl<T, I> CollectDarlingErrors<I> for T
+where
+    T: Iterator<Item = darling::Result<I>>,
+{
+    fn collect_darling_errors<C>(self) -> darling::Result<C>
+    where
+        C: FromIterator<I>,
+    {
+        let mut errors = darling::Error::accumulator();
+        let collected = self.filter_map(|r| errors.handle(r)).collect();
+        errors.finish()?;
+        Ok(collected)
     }
 }
