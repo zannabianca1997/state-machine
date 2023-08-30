@@ -45,6 +45,8 @@ struct StateMachineDef {
     state_to: Option<bool>,
     /// derive `state_try_to_*` metods
     state_try_to: Option<darling::util::SpannedValue<StateTryToDef>>,
+    /// adds infallible transitions from the same states
+    identity: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +124,8 @@ struct StateDef {
     state_to: Option<bool>,
     /// derive `state_try_to_*` metods
     state_try_to: Option<SpannedValue<StateTryToDef>>,
+    /// adds infallible transition to himself
+    identity: Option<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -375,6 +379,7 @@ impl State {
             try_into,
             state_to,
             state_try_to,
+            identity,
         }: StateDef,
         sm_is: bool,
         sm_as: bool,
@@ -383,17 +388,35 @@ impl State {
         sm_err: Option<&Type>,
         sm_state_to: bool,
         sm_state_try_to: Option<&SpannedValue<StateTryToDef>>,
+        sm_identity: bool,
     ) -> syn::Result<Self> {
         let content = fields.fields.into_iter().next().unwrap();
-        Ok(Self {
-            to: to
+        let mut to:Vec<_> = to
                 .into_iter().flat_map(|i| i.0)
                 .map(|d| Dest::from_def(d, &content))
-                .collect(),
-            try_to: try_to
+                .collect();
+            let try_to = try_to
                 .into_iter().flat_map(|i| i.0)
                 .map(|d| FallibleDest::from_def(d, &content, sm_err))
-                .collect_syn_errors()?,
+                .collect_syn_errors()?;
+
+        if identity.unwrap_or(sm_identity) {
+            // check if identity is present
+            if let Some(i) = to.iter().find_map(|Dest { to, .. }| if to == &ident {Some(to)} else {None}){
+                if identity.is_some() {
+                    // identity is requested AND already present...
+                    return Err(syn::Error::new_spanned(i, "Identity already provided"));
+                } else {
+                    // nothing to do, identity is already there and i am defaulting from the state machine globals
+                }
+            } else {
+                to.push(Dest { to: ident.clone(), fun: parse_quote!(::std::convert::identity) })
+            }
+        }
+
+        Ok(Self {
+            to ,
+            try_to ,
             name: ident,
             content,
             is: is.unwrap_or(sm_is),
@@ -568,6 +591,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
             error,
             state_to,
             state_try_to,
+            identity,
         }: StateMachineDef,
     ) -> Result<Self, Self::Error> {
         let is = is.unwrap_or(true);
@@ -575,6 +599,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
         let as_mut = as_mut.unwrap_or(true);
         let try_into = try_into.unwrap_or(true);
         let state_to = state_to.unwrap_or(true);
+        let identity = identity.unwrap_or(true);
         Ok(Self {
             state_enum: StatesEnum::from_def(state_enum, &ident, vis.clone()),
             wrong_state_error: WrongStateError::from_def(wrong_state_error, &ident, vis),
@@ -593,6 +618,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
                         error.as_ref(),
                         state_to,
                         state_try_to.as_ref(),
+                        identity
                     )
                 })
                 .collect_syn_errors()?,
@@ -626,6 +652,8 @@ impl ToTokens for StateMachine {
             if !states.is_empty() {
                 let state_names = states.iter().map(|State { name, .. }| name);
                 quote!(
+                    #[inline]
+                    #[must_use]
                     pub const fn state(&self) -> #name {
                         match self {
                             #(Self::#state_names(_)=>#name::#state_names),*
@@ -635,6 +663,8 @@ impl ToTokens for StateMachine {
                 .to_tokens(&mut sm_impl);
             } else {
                 quote!(
+                    #[inline]
+                    #[must_use]
                     pub const fn state(&self) -> #name {
                         unreachable!()
                     }
@@ -711,6 +741,8 @@ impl ToTokens for StateMachine {
             if *is {
                 let fn_name = format_ident!("is_{snake_case_name}");
                 quote!(
+                    #[must_use]
+                    #[inline]
                     pub fn #fn_name(&self)->bool {
                         self.state() == #state_enum::#name
                     }
@@ -721,6 +753,7 @@ impl ToTokens for StateMachine {
                 let fn_name = format_ident!("as_{snake_case_name}");
                 let fn_string_name = fn_name.to_string();
                 quote!(
+                    #[inline]
                     pub fn #fn_name(&self)->::std::result::Result<&#content, #wrong_state_error> {
                         if let Self::#name(content) = self {
                             ::std::result::Result::Ok(content)
@@ -739,6 +772,7 @@ impl ToTokens for StateMachine {
                 let fn_name = format_ident!("as_{snake_case_name}_mut");
                 let fn_string_name = fn_name.to_string();
                 quote!(
+                    #[inline]
                     pub fn #fn_name(&mut self)->::std::result::Result<&mut #content, #wrong_state_error> {
                         if let Self::#name(content) = self {
                             ::std::result::Result::Ok(content)
@@ -757,6 +791,7 @@ impl ToTokens for StateMachine {
                 let fn_name = format_ident!("try_into_{snake_case_name}");
                 let fn_string_name = fn_name.to_string();
                 quote!(
+                    #[inline]
                     pub fn #fn_name(self) -> ::std::result::Result<#content, (Self, #wrong_state_error)> {
                         if let Self::#name(content) = self {
                             ::std::result::Result::Ok(content)
@@ -787,11 +822,13 @@ impl ToTokens for StateMachine {
                 let fallible_fn_string_name = fallible_fn_name.to_string();
                 let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
+                    #[inline]
                     pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
                         let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})? );
                         *self = Self::#to((#fun)(content));
                         ::std::result::Result::Ok(())
                     }
+                    #[inline]
                     pub fn #fallible_fn_name(&mut self) ->::std::result::Result<Result<(), ::std::convert::Infallible>,  #wrong_state_error> {
                         let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fallible_fn_string_name; err})? );
                         *self = Self::#to((#fun)(content));
@@ -810,6 +847,7 @@ impl ToTokens for StateMachine {
                 let fn_string_name = fn_name.to_string();
                 let as_mut = format_ident!("as_{snake_case_name}_mut");
                 quote!(
+                    #[inline]
                     pub fn #fn_name(&mut self) ->::std::result::Result<Result<(), #err>,  #wrong_state_error> {
                         let content = ::std::mem::take(self.#as_mut().map_err(|mut err| {err.method = #fn_string_name; err})? );
                         match (#fun)(content) {

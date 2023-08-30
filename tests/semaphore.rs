@@ -103,6 +103,7 @@ fn failed_transition() {
 #[test]
 fn test_run() {
     let mut sem = Semaphore::Off(());
+    sem.from_off_to_off().unwrap();
     sem.state_to_green().unwrap();
     assert!(sem.is_green());
     assert_eq!(sem.as_green(), Ok(&30));
@@ -113,4 +114,13 @@ fn test_run() {
     assert_matches!(sem.try_from_yellow_to_red(), Ok(Err(_)));
     assert_eq!(sem.as_yellow(), Ok(&2));
     sem.state_to_off().unwrap();
+}
+
+#[test]
+fn infallible_as_fallible() {
+    let mut sem = Semaphore::Off(());
+    sem.from_off_to_off().unwrap();
+    sem.try_from_off_to_off().unwrap().unwrap();
+    sem.state_to_off().unwrap();
+    sem.state_try_to_off().unwrap().unwrap();
 }
