@@ -844,7 +844,7 @@ impl ToTokens for StateMachine {
                         }
                     })
                     .collect();
-                if sources.is_empty() {
+                if !sources.is_empty() {
                     let transitions = sources.iter().map(|from| {
                         format_ident!(
                             "from_{}_to_{snake_case_name}",

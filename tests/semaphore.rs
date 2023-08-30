@@ -6,11 +6,13 @@ use state_machine::StateMachine;
 #[derive(Debug, PartialEq, Eq, Clone, Copy, StateMachine)]
 #[state_machine(error = "TooSoon")]
 enum Semaphore {
-    #[state(try_to(Green = rg))]
+    #[state(to(Green=turn_on))]
+    Off(()),
+    #[state(try_to(Green = rg), to(Off = turn_off))]
     Red(u8),
-    #[state(try_to(Red = yr))]
+    #[state(try_to(Red = yr), to(Off = turn_off))]
     Yellow(u8),
-    #[state(try_to(Yellow = gy))]
+    #[state(try_to(Yellow = gy), to(Off = turn_off))]
     Green(u8),
 }
 
@@ -66,6 +68,11 @@ fn rg(time: u8) -> Result<u8, (u8, TooSoon)> {
     }
 }
 
+fn turn_on(_unit: ()) -> u8 {
+    30
+}
+fn turn_off(_time: u8) -> () {}
+
 #[test]
 fn state() {
     let sem = Semaphore::Red(10);
@@ -82,5 +89,28 @@ fn failed_transition() {
             valid: &[SemaphoreState::Yellow],
             found: SemaphoreState::Red
         })
+    );
+    assert_matches!(
+        sem.state_try_to_yellow(),
+        Err(SemaphoreWrongState {
+            method: "state_try_to_yellow",
+            valid: &[SemaphoreState::Green],
+            found: SemaphoreState::Red
+        })
     )
+}
+
+#[test]
+fn test_run() {
+    let mut sem = Semaphore::Off(());
+    sem.state_to_green().unwrap();
+    assert!(sem.is_green());
+    assert_eq!(sem.as_green(), Ok(&30));
+    *sem.as_green_mut().unwrap() = 0;
+    sem.state_try_to_yellow().unwrap().unwrap();
+    *sem.as_yellow_mut().unwrap() = 2;
+    assert_eq!(sem.state(), SemaphoreState::Yellow);
+    assert_matches!(sem.try_from_yellow_to_red(), Ok(Err(_)));
+    assert_eq!(sem.as_yellow(), Ok(&2));
+    sem.state_to_off().unwrap();
 }
