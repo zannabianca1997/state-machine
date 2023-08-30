@@ -28,9 +28,6 @@ struct StateMachineDef {
     /// Data for the state enum
     #[darling(default)]
     state_enum: StateEnumDef,
-    /// Data for the state trait
-    #[darling(default)]
-    state_trait: StateTraitDef,
     /// Data for the wrong state error
     #[darling(default)]
     wrong_state_error: WrongStateErrorDef,
@@ -49,16 +46,8 @@ struct StateMachineDef {
     /// derive `state_try_to_*` metods
     state_try_to: Option<darling::util::SpannedValue<StateTryToDef>>,
 }
-impl Eq for StateMachineDef {
-    
-}
-impl PartialEq for StateMachineDef {
-    fn eq(&self, other: &Self) -> bool {
-        self.ident == other.ident && self.vis == other.vis && self.data == other.data && self.state_enum == other.state_enum && self.state_trait == other.state_trait && self.wrong_state_error == other.wrong_state_error && self.is == other.is && self.r#as == other.r#as && self.as_mut == other.as_mut && self.try_into == other.try_into && self.error == other.error && self.state_to == other.state_to && self.state_try_to.as_deref() == other.state_try_to.as_deref()
-    }
-}
 
-#[derive(Debug, Clone,PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum StateTryToDef {
     DoNotEmit,
     Emit { error: Option<Type> },
@@ -84,7 +73,7 @@ impl FromMeta for StateTryToDef {
         Ok(Self::Emit { error })
     }
 }
-#[derive(Debug, FromMeta, Default,PartialEq, Eq)]
+#[derive(Debug, FromMeta, Default)]
 struct StateEnumDef {
     /// Name of the state enum
     name: Option<Ident>,
@@ -94,15 +83,8 @@ struct StateEnumDef {
     #[darling(multiple)]
     attrs: Vec<Meta>,
 }
-#[derive(Debug, FromMeta, Default, PartialEq, Eq)]
-struct StateTraitDef {
-    /// Name of the state trait
-    name: Option<Ident>,
-    /// Visibility of the state trait
-    vis: Option<Visibility>,
-}
 
-#[derive(Debug, FromMeta, Default,PartialEq, Eq)]
+#[derive(Debug, FromMeta, Default)]
 struct WrongStateErrorDef {
     /// Name of the state enum
     name: Option<Ident>,
@@ -140,16 +122,9 @@ struct StateDef {
     state_to: Option<bool>,
     /// derive `state_try_to_*` metods
     state_try_to: Option<SpannedValue<StateTryToDef>>,
-}impl Eq for StateDef {
-    
-}
-impl PartialEq for StateDef {
-    fn eq(&self, other: &Self) -> bool {
-        self.ident == other.ident && self.fields == other.fields && self.to == other.to && self.try_to == other.try_to && self.is == other.is && self.r#as == other.r#as && self.as_mut == other.as_mut && self.try_into == other.try_into && self.state_to == other.state_to && self.state_try_to.as_deref() == other.state_try_to.as_deref()
-    }
 }
 
-#[derive(Debug, Default,PartialEq, Eq)]
+#[derive(Debug, Default)]
 struct ToDef(Vec<DestDef>);
 
 impl FromMeta for ToDef {
@@ -189,7 +164,7 @@ impl FromMeta for ToDef {
         ))
     }
 }
-#[derive(Debug, Default,PartialEq, Eq)]
+#[derive(Debug, Default)]
 struct TryToDef(Vec<FallibleDestDef>);
 
 impl FromMeta for TryToDef {
@@ -248,18 +223,19 @@ fn fun_from_exp(expr: &Expr) -> darling::Result<Expr> {
     }
 }
 
-#[derive(Debug,PartialEq, Eq)]
+#[derive(Debug)]
 struct DestDef {
     to: Ident,
     fun: Option<Expr>,
 }
-#[derive(Debug,PartialEq, Eq)]
+#[derive(Debug)]
 struct FallibleDestDef {
     to: Ident,
     fun: Option<Expr>,
     err: Option<Type>,
 }
 
+#[derive(Debug)]
 struct StateMachine {
     /// Name of the state machine
     ident: Ident,
@@ -267,12 +243,11 @@ struct StateMachine {
     states: Vec<State>,
     /// Data for the state enum
     state_enum: StatesEnum,
-    /// Data for the state content trait
-    state_trait: StateTrait,
     /// Data for the error in case of wrong state
     wrong_state_error: WrongStateError,
 }
 
+#[derive(Debug)]
 struct WrongStateError {
     /// Name of the wrong state error
     name: Ident,
@@ -320,6 +295,7 @@ impl WrongStateError {
     }
 }
 
+#[derive(Debug)]
 struct StatesEnum {
     /// Name of the state enum
     name: Ident,
@@ -363,25 +339,7 @@ impl StatesEnum {
     }
 }
 
-struct StateTrait {
-    /// Name of the state trait
-    name: Ident,
-    /// Visibility of the state trait
-    vis: Visibility,
-}
-impl StateTrait {
-    fn from_def(
-        StateTraitDef { name, vis }: StateTraitDef,
-        sm_name: &Ident,
-        sm_vis: Visibility,
-    ) -> Self {
-        Self {
-            name: name.unwrap_or_else(|| format_ident!("{sm_name}StateContent")),
-            vis: vis.unwrap_or(sm_vis),
-        }
-    }
-}
-
+#[derive(Debug)]
 struct State {
     /// Name of the variant
     name: Ident,
@@ -508,6 +466,7 @@ struct StateTryTo {
     error: Type,
 }
 
+#[derive(Debug)]
 struct Dest {
     to: Ident,
     fun: Expr,
@@ -542,6 +501,8 @@ impl Dest {
         }
     }
 }
+
+#[derive(Debug)]
 struct FallibleDest {
     to: Ident,
     fun: Expr,
@@ -599,7 +560,6 @@ impl TryFrom<StateMachineDef> for StateMachine {
             vis,
             data,
             state_enum,
-            state_trait,
             wrong_state_error,
             is,
             r#as,
@@ -617,7 +577,6 @@ impl TryFrom<StateMachineDef> for StateMachine {
         let state_to = state_to.unwrap_or(true);
         Ok(Self {
             state_enum: StatesEnum::from_def(state_enum, &ident, vis.clone()),
-            state_trait: StateTrait::from_def(state_trait, &ident, vis.clone()),
             wrong_state_error: WrongStateError::from_def(wrong_state_error, &ident, vis),
             ident,
             states: data
@@ -647,7 +606,6 @@ impl ToTokens for StateMachine {
             ident: sm_name,
             states,
             state_enum,
-            state_trait,
             wrong_state_error,
         } = self;
         // collector for the function to create in the machine
@@ -665,30 +623,24 @@ impl ToTokens for StateMachine {
             )
             .to_tokens(tokens);
             // state getter
-            let state_names = states.iter().map(|State { name, .. }| name);
-            quote!(
-                pub const fn state(&self) -> #name {
-                    match self {
-                        #(Self::#state_names(_)=>#name::#state_names),*
+            if !states.is_empty() {
+                let state_names = states.iter().map(|State { name, .. }| name);
+                quote!(
+                    pub const fn state(&self) -> #name {
+                        match self {
+                            #(Self::#state_names(_)=>#name::#state_names),*
+                        }
                     }
-                }
-            )
-            .to_tokens(&mut sm_impl);
-        }
-        // state trait
-        {
-            let StateTrait { name, vis } = state_trait;
-            let StatesEnum {
-                name: state_enum, ..
-            } = state_enum;
-            // trait definition
-            quote!(
-                #[automatically_derived]
-                #vis trait #name {
-                    const STATE: #state_enum;
-                }
-            )
-            .to_tokens(tokens);
+                )
+                .to_tokens(&mut sm_impl);
+            } else {
+                quote!(
+                    pub const fn state(&self) -> #name {
+                        unreachable!()
+                    }
+                )
+                .to_tokens(&mut sm_impl);
+            }
         }
         // wrong state error
         {
@@ -744,10 +696,7 @@ impl ToTokens for StateMachine {
             state_try_to,
         } in states
         {
-            // Trait impl
-            let StateTrait {
-                name: state_trait, ..
-            } = state_trait;
+            dbg!(name.to_string());
             let StatesEnum {
                 name: state_enum, ..
             } = state_enum;
@@ -755,14 +704,6 @@ impl ToTokens for StateMachine {
                 name: wrong_state_error,
                 ..
             } = wrong_state_error;
-
-            quote!(
-                #[automatically_derived]
-                impl #state_trait for #content {
-                    const STATE: #state_enum = #state_enum::#name;
-                }
-            )
-            .to_tokens(tokens);
 
             let snake_case_name = name
                 .to_string()
@@ -920,35 +861,34 @@ impl ToTokens for StateMachine {
                     })
                     .collect();
                 if sources.is_empty() {
-                    break;
-                }
-                let transitions = sources.iter().map(|from| {
-                    format_ident!(
-                        "from_{}_to_{snake_case_name}",
-                        from.to_string()
-                            .from_case(Case::Pascal)
-                            .to_case(Case::Snake)
-                    )
-                });
-                let fn_name = format_ident!("state_to_{snake_case_name}");
-                let fn_string_name = fn_name.to_string();
-                quote!(
-                    pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
-                        match self {
-                            #(Self::#sources(_)=>::std::result::Result::Ok(self.#transitions().unwrap()),)*
-                            _=>::std::result::Result::Err(#wrong_state_error {
-                                method: #fn_string_name,
-                                valid: &[#(#state_enum::#sources),*],
-                                found: self.state()
-                            })
+                    let transitions = sources.iter().map(|from| {
+                        format_ident!(
+                            "from_{}_to_{snake_case_name}",
+                            from.to_string()
+                                .from_case(Case::Pascal)
+                                .to_case(Case::Snake)
+                        )
+                    });
+                    let fn_name = format_ident!("state_to_{snake_case_name}");
+                    let fn_string_name = fn_name.to_string();
+                    quote!(
+                        pub fn #fn_name(&mut self) ->::std::result::Result<(),  #wrong_state_error> {
+                            match self {
+                                #(Self::#sources(_)=>::std::result::Result::Ok(self.#transitions().unwrap()),)*
+                                _=>::std::result::Result::Err(#wrong_state_error {
+                                    method: #fn_string_name,
+                                    valid: &[#(#state_enum::#sources),*],
+                                    found: self.state()
+                                })
+                            }
                         }
-                    }
-                )
-                .to_tokens(&mut sm_impl);
+                    )
+                    .to_tokens(&mut sm_impl);
+                }
             }
 
-            // global infallible state transition
-            if let Some(StateTryTo { error }) = state_try_to {
+            // global fallible state transition
+             if let Some(StateTryTo { error }) = state_try_to {
                 // All the states that can transition infallibly to this
                 let infallible_sources: Vec<_> = states
                     .iter()
@@ -974,44 +914,43 @@ impl ToTokens for StateMachine {
                         },
                     )
                     .collect();
-                if infallible_sources.is_empty() && fallible_sources.is_empty() {
-                    break;
-                }
-                let infallible_transitions = infallible_sources.iter().map(|from| {
-                    format_ident!(
-                        "from_{}_to_{snake_case_name}",
-                        from.to_string()
-                            .from_case(Case::Pascal)
-                            .to_case(Case::Snake)
-                    )
-                });
-                let fallible_transitions = fallible_sources.iter().map(|from| {
-                    format_ident!(
-                        "try_from_{}_to_{snake_case_name}",
-                        from.to_string()
-                            .from_case(Case::Pascal)
-                            .to_case(Case::Snake)
-                    )
-                });
-                let fn_name = format_ident!("state_try_to_{snake_case_name}");
-                let fn_string_name = fn_name.to_string();
-                quote!(
-                    pub fn #fn_name(&mut self) ->::std::result::Result<::std::result::Result<(), #error>,  #wrong_state_error> {
-                        match self {
-                            // all infallible transitions with double Oks
-                            #(Self::#infallible_sources(_)=>::std::result::Result::Ok(::std::result::Result::Ok(self.#infallible_transitions().unwrap())),)*
-                            // all fallible transitions
-                            #(Self::#fallible_sources(_)=>::std::result::Result::Ok(self.#fallible_transitions().unwrap().map_err(::std::convert::Into::into)),)*
+                if ! (infallible_sources.is_empty() && fallible_sources.is_empty()) {
+                    let infallible_transitions = infallible_sources.iter().map(|from| {
+                        format_ident!(
+                            "from_{}_to_{snake_case_name}",
+                            from.to_string()
+                                .from_case(Case::Pascal)
+                                .to_case(Case::Snake)
+                        )
+                    });
+                    let fallible_transitions = fallible_sources.iter().map(|from| {
+                        format_ident!(
+                            "try_from_{}_to_{snake_case_name}",
+                            from.to_string()
+                                .from_case(Case::Pascal)
+                                .to_case(Case::Snake)
+                        )
+                    });
+                    let fn_name = format_ident!("state_try_to_{snake_case_name}");
+                    let fn_string_name = fn_name.to_string();
+                    quote!(
+                        pub fn #fn_name(&mut self) ->::std::result::Result<::std::result::Result<(), #error>,  #wrong_state_error> {
+                            match self {
+                                // all infallible transitions with double Oks
+                                #(Self::#infallible_sources(_)=>::std::result::Result::Ok(::std::result::Result::Ok(self.#infallible_transitions().unwrap())),)*
+                                // all fallible transitions
+                                #(Self::#fallible_sources(_)=>::std::result::Result::Ok(self.#fallible_transitions().unwrap().map_err(::std::convert::Into::into)),)*
 
-                            _=>::std::result::Result::Err(#wrong_state_error {
-                                method: #fn_string_name,
-                                valid: &[#(#state_enum::#fallible_sources,)* #(#state_enum::#infallible_sources),*],
-                                found: self.state()
-                            })
+                                _=>::std::result::Result::Err(#wrong_state_error {
+                                    method: #fn_string_name,
+                                    valid: &[#(#state_enum::#fallible_sources,)* #(#state_enum::#infallible_sources),*],
+                                    found: self.state()
+                                })
+                            }
                         }
-                    }
-                )
-                .to_tokens(&mut sm_impl);
+                    )
+                    .to_tokens(&mut sm_impl);
+                }
             }
         }
         
