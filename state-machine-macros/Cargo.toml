@@ -1,0 +1,14 @@
+[package]
+name = "state-machine-macros"
+version = "0.2.0"
+edition = "2021"
+description = "Macro for the derivation of the state machine"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+darling = "0.20.3"
+proc-macro2 = "1.0.66"
+quote = "1.0.33"
+syn = "2.0.31"
