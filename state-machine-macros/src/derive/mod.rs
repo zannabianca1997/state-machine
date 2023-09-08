@@ -107,8 +107,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
             .to_tokens(&mut impl_items);
         }
         // fallible transformations
-        // the infallible ones are also chained, thanks to the blanket impl of TryTransitionTo
-        for dest in try_to.into_iter().chain(to) {
+        for dest in try_to {
             let State {
                 name: dest_name,
                 content: dest_content,

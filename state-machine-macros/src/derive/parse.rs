@@ -63,16 +63,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
                         let try_to = try_to
                             .into_iter()
                             .flatten()
-                            .inspect(|tt| {
-                                if to.contains(tt) {
-                                    errs.push(
-                                        darling::Error::custom(
-                                            "Transition already present as infallible",
-                                        )
-                                        .with_span(tt),
-                                    )
-                                }
-                            })
+                            .chain(to.iter().cloned()) // infallible transformations are valid fallible transformations
                             .collect();
                         State {
                             name: ident,
