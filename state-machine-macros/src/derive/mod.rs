@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
-use syn::{ItemTrait, Type, Visibility};
+use syn::{Type, Visibility};
 
 use self::parse::parse;
 
