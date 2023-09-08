@@ -8,6 +8,7 @@ description = "Macro for the derivation of the state machine"
 proc-macro = true
 
 [dependencies]
+convert_case = "0.6.0"
 darling = "0.20.3"
 proc-macro2 = "1.0.66"
 quote = "1.0.33"
