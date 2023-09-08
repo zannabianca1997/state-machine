@@ -159,10 +159,12 @@ impl FromMeta for ToDef {
 #[cfg(test)]
 mod tests {
     mod from_derive_input_to_def {
+        use std::assert_matches::assert_matches;
+
         use darling::FromDeriveInput;
         use syn::{parse_quote, Visibility};
 
-        use crate::derive::parse::StateMachineDef;
+        use crate::derive::parse::{ExtTraitDef, StateMachineDef};
 
         #[test]
         fn empty() {
@@ -235,15 +237,19 @@ mod tests {
         #[test]
         fn ext_trait() {
             let input = parse_quote!(
-                #[state_machine(ext_trait)]
+                #[state_machine(ext_trait(
+                    name=Help,
+                    vis = "pub"
+                ))]
                 enum Sm {}
             );
-            let StateMachineDef { data, .. } = StateMachineDef::from_derive_input(&input).unwrap();
-            let [a, _, _] = &data.take_enum().unwrap()[..] else {
-                panic!()
-            };
-            assert_eq!(a.to.len(), 1);
-            assert_eq!(a.to[0].0.len(), 2);
+            let StateMachineDef {
+                ext_trait: ExtTraitDef { name, vis },
+                ..
+            } = StateMachineDef::from_derive_input(&input).unwrap();
+            assert!(name.is_some());
+            assert_eq!(name.unwrap(), "Help");
+            assert_matches!(vis, Some(Visibility::Public(_)))
         }
     }
 }

@@ -68,7 +68,14 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
     {
         let from_name_snake = from_name.to_string().to_case(Case::Snake);
         // infallible transformations
-        for dest_name in to {
+        for dest in to {
+            let State {
+                name: dest_name,
+                content: dest_content,
+                ..
+            } = states
+                .get(dest)
+                .expect("The parsing should refuse unknown variants");
             let fn_name = format_ident!(
                 "from_{from_name_snake}_to_{}",
                 dest_name.to_string().to_case(Case::Snake)
@@ -87,11 +94,11 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                     let mut res = ::std::option::Option::None;
                     ::state_machine::take_mut::take(self, |this| {
                         if let #name::#from_name(content) = this {
-                            *res = ::std::option::Option::Some(());
-                            #name::#dest_name(::state_machine::TransitionTo::transition(content))
+                            res = ::std::option::Option::Some(());
+                            #name::#dest_name(::state_machine::TransitionTo::<#dest_content>::transition(content))
                         } else {
-                            *res = ::std::option::Option::None;
-                            #name::#from_name(content)
+                            res = ::std::option::Option::None;
+                            this
                         }
                     });
                     res
@@ -117,7 +124,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                 ::std::option::Option<
                     ::std::result::Result<
                         (),
-                        <#dest_content as ::state_machine::TryTransitionTo<#from_content>>::Error
+                        <#from_content as ::state_machine::TryTransitionTo<#dest_content>>::Error
                     >
                 >
             );
@@ -134,19 +141,19 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                     let mut res = ::std::option::Option::None;
                     ::state_machine::take_mut::take(self, |this| {
                         if let #name::#from_name(content) = this {
-                            match ::state_machine::TryTransitionTo::try_transition(&content) {
+                            match ::state_machine::TryTransitionTo::<#dest_content>::try_transition(&content) {
                                 ::std::result::Result::Ok(f) => {
-                                    *res = ::std::option::Option::Some(::std::result::Result::Ok(()));
+                                    res = ::std::option::Option::Some(::std::result::Result::Ok(()));
                                     #name::#dest_name(f(content))
                                 }
                                 ::std::result::Result::Err(err) => {
-                                    *res = ::std::option::Option::Some(::std::result::Result::Err(err));
+                                    res = ::std::option::Option::Some(::std::result::Result::Err(err));
                                     #name::#from_name(content)
                                 }
                             }
                         } else {
-                            *res = ::std::option::Option::None;
-                            #name::#from_name(content)
+                            res = ::std::option::Option::None;
+                            this
                         }
                     });
                     res
@@ -157,10 +164,12 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
     }
 
     quote!(
+        #[automatically_derived]
         #tr_vis trait #tr_name {
             #tr_items
         }
 
+        #[automatically_derived]
         impl #tr_name for #name {
             #impl_items
         }

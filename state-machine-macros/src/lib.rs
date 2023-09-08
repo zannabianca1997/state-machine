@@ -1,4 +1,5 @@
 #![feature(iterator_try_collect)]
+#![feature(assert_matches)]
 
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
