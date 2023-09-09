@@ -54,6 +54,7 @@ fn cycle() {
         capacity: 8,
     });
     filler.try_from_off_to_filling().unwrap().unwrap();
+    assert_eq!(filler.state(), WaterFillerState::Off);
     filler.as_filling_mut().unwrap().fill();
     filler.from_filling_to_off().unwrap();
     let bottle = filler.as_off_mut().unwrap().take().unwrap();

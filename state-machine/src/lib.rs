@@ -33,6 +33,7 @@ pub trait TryTransitionTo<Dest> {
         Self: Sized;
 }
 
+/// Blanket implementations for infallible as fallible transforms
 impl<T, D> TryTransitionTo<D> for T
 where
     T: TransitionTo<D>,
@@ -53,9 +54,9 @@ pub struct WrongStateError<StateEnum>
 where
     StateEnum: 'static,
 {
-    method: &'static str,
-    found: StateEnum,
-    allowed: &'static [StateEnum],
+    pub method: &'static str,
+    pub found: StateEnum,
+    pub allowed: &'static [StateEnum],
 }
 impl<S> Display for WrongStateError<S>
 where

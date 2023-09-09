@@ -29,6 +29,8 @@ struct StateMachineDef {
     data: Data<StateDef, ()>,
     #[darling(default)]
     ext_trait: ExtTraitDef,
+    #[darling(default)]
+    state_enum: StateEnumDef,
 }
 
 impl TryFrom<StateMachineDef> for StateMachine {
@@ -40,6 +42,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
             vis,
             data,
             ext_trait,
+            state_enum,
         }: StateMachineDef,
     ) -> Result<Self, Self::Error> {
         let mut errs = Accumulator::default();
@@ -85,7 +88,14 @@ impl TryFrom<StateMachineDef> for StateMachine {
         errs.finish_with(Self {
             ext_trait: ExtTrait {
                 name: ext_trait.name.unwrap_or_else(|| format_ident!("{ident}SM")),
-                vis: ext_trait.vis.unwrap_or(vis),
+                vis: ext_trait.vis.unwrap_or_else(|| vis.clone()),
+            },
+            state_enum: super::StateEnum {
+                name: state_enum
+                    .name
+                    .unwrap_or_else(|| format_ident!("{ident}State")),
+                vis: state_enum.vis.unwrap_or(vis),
+                attrs: state_enum.attrs.into_iter().flatten().collect(),
             },
             name: ident,
             states,
@@ -104,6 +114,20 @@ struct ExtTraitDef {
     vis: Option<Visibility>,
 }
 
+/// The enum that contains the states
+#[derive(Debug, Clone, FromMeta, PartialEq, Eq, Default)]
+struct StateEnumDef {
+    /// The name of the trait
+    #[darling(default)]
+    name: Option<Ident>,
+    /// Visibility of the trait
+    #[darling(default)]
+    vis: Option<Visibility>,
+    /// Additional attributes
+    #[darling(multiple)]
+    attrs: Vec<Attributes>,
+}
+
 /// A state of the machine
 #[derive(Debug, Clone, FromVariant, PartialEq, Eq)]
 #[darling(supports(newtype))]
@@ -117,7 +141,7 @@ struct StateDef {
     try_to: Vec<ToDef>,
 }
 
-/// A state of the machine
+/// A transition of the machine
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ToDef(BTreeSet<Ident>);
 
@@ -147,6 +171,34 @@ impl FromMeta for ToDef {
     }
 }
 
+/// An attribute list
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Attributes(Vec<Meta>);
+
+impl IntoIterator for Attributes {
+    type Item = Meta;
+
+    type IntoIter = <Vec<Meta> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> <Vec<Meta> as IntoIterator>::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl FromMeta for Attributes {
+    fn from_list(items: &[NestedMeta]) -> darling::Result<Self> {
+        let mut metas = vec![];
+        let mut errs = Accumulator::default();
+        for item in items {
+            if let NestedMeta::Meta(meta) = item {
+                metas.push(meta.clone());
+                continue;
+            }
+            errs.push(darling::Error::custom("Expected variant name").with_span(&item))
+        }
+        errs.finish_with(Self(metas))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     mod from_derive_input_to_def {
@@ -155,7 +207,7 @@ mod tests {
         use darling::FromDeriveInput;
         use syn::{parse_quote, Visibility};
 
-        use crate::derive::parse::{ExtTraitDef, StateMachineDef};
+        use crate::derive::parse::{ExtTraitDef, StateEnumDef, StateMachineDef};
 
         #[test]
         fn empty() {
@@ -169,10 +221,12 @@ mod tests {
                 vis,
                 data,
                 ext_trait,
+                state_enum,
             } = StateMachineDef::from_derive_input(&input).unwrap();
             assert_eq!(ident, "Sm");
             assert_eq!(vis, Visibility::Inherited);
             assert_eq!(ext_trait, Default::default());
+            assert_eq!(state_enum, Default::default());
             assert!(data.is_enum());
             let [a] = &data.take_enum().unwrap()[..] else {
                 panic!()
@@ -241,6 +295,29 @@ mod tests {
             assert!(name.is_some());
             assert_eq!(name.unwrap(), "Help");
             assert_matches!(vis, Some(Visibility::Public(_)))
+        }
+
+        #[test]
+        fn state_enum() {
+            let input = parse_quote!(
+                #[state_machine(state_enum(
+                    name=Help,
+                    vis = "pub",
+                    attrs(
+                        derive(Serialize)
+                    )
+                ))]
+                enum Sm {}
+            );
+            let StateMachineDef {
+                state_enum: StateEnumDef { name, vis, attrs },
+                ..
+            } = StateMachineDef::from_derive_input(&input).unwrap();
+            assert!(name.is_some());
+            assert_eq!(name.unwrap(), "Help");
+            assert_matches!(vis, Some(Visibility::Public(_)));
+            assert_eq!(attrs.len(), 1);
+            assert_eq!(attrs[0].0.len(), 1)
         }
     }
 }
