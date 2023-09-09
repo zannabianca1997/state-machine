@@ -144,20 +144,29 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         // is_*, as_*, try_into_*, new_* methods
 
         let is_fn_name = format_ident!("is_{from_name_snake}");
+        let is_fn_doc = format!("Return true if `self` is in the state [`{from_name}`]\n\n[`{from_name}`]: {name}::{from_name}");
         let as_fn_name = format_ident!("as_{from_name_snake}");
-        let as_mut_fn_name = format_ident!("as_{from_name_snake}_mut");
         let as_fn_name_str = as_fn_name.to_string();
+        let as_fn_doc = format!("If `self` is in the state [`{from_name}`] return a reference to the content\n\n[`{from_name}`]: {name}::{from_name}");
+        let as_mut_fn_name = format_ident!("as_{from_name_snake}_mut");
         let as_mut_fn_name_str = as_mut_fn_name.to_string();
+        let as_mut_fn_doc = format!("If `self` is in the state [`{from_name}`] return a mutable reference to the content\n\n[`{from_name}`]: {name}::{from_name}");
         quote!(
+            #[doc = #is_fn_doc]
             fn #is_fn_name(&self) -> bool;
+            #[doc = #as_fn_doc]
             fn #as_fn_name(&self) -> ::std::result::Result<&#from_content, ::state_machine::WrongStateError<Self::State>>;
+            #[doc = #as_mut_fn_doc]
             fn #as_mut_fn_name(&mut self) -> ::std::result::Result<&mut #from_content, ::state_machine::WrongStateError<Self::State>>;
         )
         .to_tokens(&mut tr_items);
         quote!(
+            #[inline]
+            #[must_use]
             fn #is_fn_name(&self) -> bool {
                 ::std::matches!(self, #name::#from_name(_))
             }
+            #[inline]
             fn #as_fn_name(&self) -> ::std::result::Result<&#from_content, ::state_machine::WrongStateError<Self::State>> {
                 if let #name::#from_name(content) = self {
                     ::std::result::Result::Ok(content)
@@ -169,6 +178,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                     })
                 }
             }
+            #[inline]
             fn #as_mut_fn_name(&mut self) -> ::std::result::Result<&mut #from_content, ::state_machine::WrongStateError<Self::State>> {
                 if let #name::#from_name(content) = self {
                     ::std::result::Result::Ok(content)
@@ -186,32 +196,35 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         // infallible transformations
         for dest in to {
             let State {
-                name: dest_name,
-                content: dest_content,
+                name: to_name,
+                content: to_content,
                 ..
             } = states
                 .get(dest)
                 .expect("The parsing should refuse unknown variants");
             let fn_name = format_ident!(
                 "from_{from_name_snake}_to_{}",
-                dest_name.to_string().to_case(Case::Snake)
+                to_name.to_string().to_case(Case::Snake)
             );
             let fn_name_str = fn_name.to_string();
+            let fn_doc = format!("If `self` is in the state [`{from_name}`] transition to the state [`{to_name}`]\n\n[`{from_name}`]: {name}::{from_name}\n[`{to_name}`]: {name}::{to_name}");
             let fn_return = quote!(::std::result::Result<&mut Self, ::state_machine::WrongStateError<Self::State>>);
 
             // fn declaration
             quote!(
+                #[doc = #fn_doc]
                 fn #fn_name(&mut self)->#fn_return;
             )
             .to_tokens(&mut tr_items);
 
             // fn impl
             quote!(
+                #[inline]
                 fn #fn_name(&mut self)->#fn_return {
                     if self.state() == #se_name::#from_name {
                         ::state_machine::take_mut::take(self, |this| {
                             let #name::#from_name(content) = this else {unreachable!()};
-                            #name::#dest_name(::state_machine::TransitionTo::<#dest_content>::transition(content))
+                            #name::#to_name(::state_machine::TransitionTo::<#to_content>::transition(content))
                         });
                         ::std::result::Result::Ok(self)
                     } else {
@@ -228,22 +241,23 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         // fallible transformations
         for dest in try_to {
             let State {
-                name: dest_name,
-                content: dest_content,
+                name: to_name,
+                content: to_content,
                 ..
             } = states
                 .get(dest)
                 .expect("The parsing should refuse unknown variants");
             let fn_name = format_ident!(
                 "try_from_{from_name_snake}_to_{}",
-                dest_name.to_string().to_case(Case::Snake)
+                to_name.to_string().to_case(Case::Snake)
             );
             let fn_name_str = fn_name.to_string();
+            let fn_doc = format!("If `self` is in the state [`{from_name}`] try to transition to the state [`{to_name}`]\n\n[`{from_name}`]: {name}::{from_name}\n[`{to_name}`]: {name}::{to_name}");
             let fn_return = quote!(
                 ::std::result::Result<
                     ::std::result::Result<
                         &mut Self,
-                        <#from_content as ::state_machine::TryTransitionTo<#dest_content>>::Error
+                        <#from_content as ::state_machine::TryTransitionTo<#to_content>>::Error
                     >,
                     ::state_machine::WrongStateError<Self::State>
                 >
@@ -251,21 +265,23 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
 
             // fn declaration
             quote!(
+                #[doc = #fn_doc]
                 fn #fn_name(&mut self) -> #fn_return;
             )
             .to_tokens(&mut tr_items);
 
             // fn impl
             quote!(
+                #[inline]
                 fn #fn_name(&mut self) -> #fn_return{
                     let content = self.#as_fn_name().map_err(|mut err| {err.method = #fn_name_str; err} )?;
-                    let fun = match ::state_machine::TryTransitionTo::<#dest_content>::try_transition(content) {
+                    let fun = match ::state_machine::TryTransitionTo::<#to_content>::try_transition(content) {
                         ::std::result::Result::Ok(fun) => fun,
                         ::std::result::Result::Err(err) => return ::std::result::Result::Ok(::std::result::Result::Err(err)),
                     };
                     ::state_machine::take_mut::take(self, |this| {
                         let #name::#from_name(content) = this else {unreachable!()};
-                        #name::#dest_name((fun)(content))
+                        #name::#to_name((fun)(content))
                     });
                     ::std::result::Result::Ok(::std::result::Result::Ok(self))
                 }
@@ -281,6 +297,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
 
             let fn_name = format_ident!("to_{to_name_snake}");
             let fn_name_str = fn_name.to_string();
+            let fn_doc = format!("Transition infallibly from the current state to the state [`{to_name}`]\n\n[`{from_name}`]: {name}::{from_name}\n[`{to_name}`]: {name}::{to_name}");
             let fn_return = quote!(::std::result::Result<&mut Self, ::state_machine::WrongStateError<Self::State>>);
 
             let from_names: Vec<_> = states
@@ -296,12 +313,14 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
 
             // fn declaration
             quote!(
+                #[doc = #fn_doc]
                 fn #fn_name(&mut self)->#fn_return;
             )
             .to_tokens(&mut tr_items);
 
             // fn impl
             quote!(
+                #[inline]
                 fn #fn_name(&mut self)->#fn_return {
                     match self {
                         #(Self::#from_names(_) => ::std::result::Result::Ok(self.#from_funs().unwrap()),)*
@@ -324,6 +343,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
 
             let fn_name = format_ident!("try_to_{to_name_snake}");
             let fn_name_str = fn_name.to_string();
+            let fn_doc = format!("Transition fallibly from the current state to the state [`{to_name}`]\n\n[`{from_name}`]: {name}::{from_name}\n[`{to_name}`]: {name}::{to_name}");
             let fn_return = quote!(::std::result::Result<::std::result::Result<&mut Self, #error>, ::state_machine::WrongStateError<Self::State>>);
 
             let from_names: Vec<_> = states
@@ -339,12 +359,14 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
 
             // fn declaration
             quote!(
+                #[doc = #fn_doc]
                 fn #fn_name(&mut self)->#fn_return;
             )
             .to_tokens(&mut tr_items);
 
             // fn impl
             quote!(
+                #[inline]
                 fn #fn_name(&mut self)->#fn_return {
                     match self {
                         #(Self::#from_names(_) => ::std::result::Result::Ok(self.#from_funs().unwrap().map_err(::std::convert::Into::into)),)*
@@ -397,13 +419,18 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                 })
             },
         );
+        let from_to_fn_doc =
+            format!("Transition infallibly from the `from` state to the `to` state");
+        let to_fn_doc = format!("Transition infallibly from the current state to the `to` state");
 
         quote!(
+            #[doc = #from_to_fn_doc]
             fn from_to(
                 &mut self,
                 from: Self::State,
                 to: Self::State,
             ) -> ::std::result::Result<&mut Self, ::state_machine::GenericFromToError<Self::State>>;
+            #[doc = #to_fn_doc]
             fn to(
                 &mut self,
                 to: Self::State,
@@ -411,6 +438,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         )
         .to_tokens(&mut tr_items);
         quote!(
+            #[inline]
             fn from_to(
                 &mut self,
                 from: Self::State,
@@ -430,6 +458,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                     )
                 }
             }
+            #[inline]
             fn to(
                 &mut self,
                 to: Self::State,
@@ -454,7 +483,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         .to_tokens(&mut impl_items);
     }
 
-    // gereic fallible transforms
+    // generic fallible transforms
     if let Some(sm_error) = sm_error {
         let try_from_to_arms = states.iter().flat_map(
             |(
@@ -490,12 +519,18 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
             },
         );
 
+        let try_from_to_fn_doc =
+            format!("Transition fallibly from the `from` state to the `to` state");
+        let try_to_fn_doc = format!("Transition fallibly from the current state to the `to` state");
+
         quote!(
+            #[doc = #try_from_to_fn_doc]
             fn try_from_to(
                 &mut self,
                 from: Self::State,
                 to: Self::State,
             ) -> ::std::result::Result<::std::result::Result<&mut Self, #sm_error>, ::state_machine::GenericFromToError<Self::State>>;
+            #[doc = #try_to_fn_doc]
             fn try_to(
                 &mut self,
                 to: Self::State,
@@ -503,6 +538,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         )
         .to_tokens(&mut tr_items);
         quote!(
+            #[inline]
             fn try_from_to(
                 &mut self,
                 from: Self::State,
@@ -522,6 +558,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                     )
                 }
             }
+            #[inline]
             fn try_to(
                 &mut self,
                 to: Self::State,
