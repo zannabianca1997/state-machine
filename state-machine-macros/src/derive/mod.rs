@@ -20,6 +20,8 @@ struct StateMachine {
     state_enum: StateEnum,
     /// The states of the machine
     states: BTreeMap<Ident, State>,
+    /// Error for global generic transitions
+    error: Option<Type>,
 }
 
 /// The trait containing all the state machine functions
@@ -99,6 +101,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         },
         states,
         state_enum,
+        error: sm_error,
     } = match parse(&input) {
         Ok(sm) => sm,
         Err(err) => return err,
@@ -123,7 +126,6 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
                 match self {
                     #(Self::#variants_1(_)=>#se_name::#variants_2,)*
                 }
-
             }
         )
         .to_tokens(&mut impl_items);
@@ -356,6 +358,191 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
             )
             .to_tokens(&mut impl_items);
         }
+    }
+
+    // generic infallible transforms
+    {
+        let from_to_arms = states.iter().flat_map(
+            |(
+                from,
+                State {
+                    to: possible_to,
+                    try_to: fallibles,
+                    ..
+                },
+            )| {
+                states.keys().map(move |to| {
+                    if possible_to.contains(to) {
+                        let fn_name = format_ident!(
+                            "from_{}_to_{}",
+                            from.to_string().to_case(Case::Snake),
+                            to.to_string().to_case(Case::Snake)
+                        );
+                        quote!(
+                            (#se_name::#from, #se_name::#to) => ::std::result::Result::Ok(
+                                self.#fn_name().unwrap()
+                            )
+                        )
+                    } else {
+                        let fallible = fallibles.contains(to);
+                        quote!(
+                            (#se_name::#from, #se_name::#to) => ::std::result::Result::Err(
+                            ::state_machine::GenericFromToError::NoTransition {
+                                from,
+                                to,
+                                fallible: #fallible,
+                            }
+                        ))
+                    }
+                })
+            },
+        );
+
+        quote!(
+            fn from_to(
+                &mut self,
+                from: Self::State,
+                to: Self::State,
+            ) -> ::std::result::Result<&mut Self, ::state_machine::GenericFromToError<Self::State>>;
+            fn to(
+                &mut self,
+                to: Self::State,
+            ) -> ::std::result::Result<&mut Self, ::state_machine::GenericToError<Self::State>>;
+        )
+        .to_tokens(&mut tr_items);
+        quote!(
+            fn from_to(
+                &mut self,
+                from: Self::State,
+                to: Self::State,
+            ) -> ::std::result::Result<&mut Self, ::state_machine::GenericFromToError<Self::State>>
+            {
+                if self.state() == from {
+                    match (from, to) {
+                        #(#from_to_arms,)*
+                    }
+                } else {
+                    ::std::result::Result::Err(
+                        ::state_machine::GenericFromToError::WrongState {
+                            from,
+                            found: self.state(),
+                        },
+                    )
+                }
+            }
+            fn to(
+                &mut self,
+                to: Self::State,
+            ) -> ::std::result::Result<&mut Self, ::state_machine::GenericToError<Self::State>>
+            {
+                self.from_to(self.state(), to).map_err(
+                    |err| {
+                        let ::state_machine::GenericFromToError::NoTransition {
+                            from,
+                            to,
+                            fallible,
+                        } = err else {unreachable!()};
+                        ::state_machine::GenericToError::NoTransition {
+                            found: from,
+                            to,
+                            fallible,
+                        }
+                    }
+                )
+            }
+        )
+        .to_tokens(&mut impl_items);
+    }
+
+    if let Some(sm_error) = sm_error {
+        let try_from_to_arms = states.iter().flat_map(
+            |(
+                from,
+                State {
+                    try_to: possible_try_to,
+                    ..
+                },
+            )| {
+                states.keys().map(move |to| {
+                    if possible_try_to.contains(to) {
+                        let fn_name = format_ident!(
+                            "try_from_{}_to_{}",
+                            from.to_string().to_case(Case::Snake),
+                            to.to_string().to_case(Case::Snake)
+                        );
+                        quote!(
+                            (#se_name::#from, #se_name::#to) => ::std::result::Result::Ok(
+                                self.#fn_name().unwrap().map_err(::std::convert::Into::into)
+                            )
+                        )
+                    } else {
+                        quote!(
+                            (#se_name::#from, #se_name::#to) => ::std::result::Result::Err(
+                            ::state_machine::GenericFromToError::NoTransition {
+                                from,
+                                to,
+                                fallible: false,
+                            }
+                        ))
+                    }
+                })
+            },
+        );
+
+        quote!(
+            fn try_from_to(
+                &mut self,
+                from: Self::State,
+                to: Self::State,
+            ) -> ::std::result::Result<::std::result::Result<&mut Self, #sm_error>, ::state_machine::GenericFromToError<Self::State>>;
+            fn try_to(
+                &mut self,
+                to: Self::State,
+            ) -> ::std::result::Result<::std::result::Result<&mut Self, #sm_error>, ::state_machine::GenericToError<Self::State>>;
+        )
+        .to_tokens(&mut tr_items);
+        quote!(
+            fn try_from_to(
+                &mut self,
+                from: Self::State,
+                to: Self::State,
+            ) -> ::std::result::Result<::std::result::Result<&mut Self, #sm_error>, ::state_machine::GenericFromToError<Self::State>>
+            {
+                if self.state() == from {
+                    match (from, to) {
+                        #(#try_from_to_arms,)*
+                    }
+                } else {
+                    ::std::result::Result::Err(
+                        ::state_machine::GenericFromToError::WrongState {
+                            from,
+                            found: self.state(),
+                        },
+                    )
+                }
+            }
+            fn try_to(
+                &mut self,
+                to: Self::State,
+            ) -> ::std::result::Result<::std::result::Result<&mut Self, #sm_error>, ::state_machine::GenericToError<Self::State>>
+            {
+                self.try_from_to(self.state(), to).map_err(
+                    |err| {
+                        let ::state_machine::GenericFromToError::NoTransition {
+                            from,
+                            to,
+                            fallible,
+                        } = err else {unreachable!()};
+                        ::state_machine::GenericToError::NoTransition {
+                            found: from,
+                            to,
+                            fallible,
+                        }
+                    }
+                )
+            }
+        )
+        .to_tokens(&mut impl_items);
     }
 
     let mut tokens = quote!(

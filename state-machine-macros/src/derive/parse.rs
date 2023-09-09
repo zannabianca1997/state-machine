@@ -104,6 +104,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
             },
             name: ident,
             states,
+            error: sm_error,
         })
     }
 }

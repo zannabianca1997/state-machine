@@ -83,3 +83,19 @@ fn cycle_with_global_transitions() {
     let bottle = filler.as_off_mut().unwrap().take().unwrap();
     assert_eq!(bottle.capacity, bottle.content)
 }
+
+#[test]
+fn cycle_with_generic_transitions() {
+    let mut filler = WaterFiller::Off(None);
+    assert!(filler.is_off());
+    *filler.as_off_mut().unwrap() = Some(Bottle {
+        content: 0,
+        capacity: 8,
+    });
+    filler.try_to(WaterFillerState::Filling).unwrap().unwrap();
+    assert_eq!(filler.state(), WaterFillerState::Filling);
+    filler.as_filling_mut().unwrap().fill();
+    filler.to(WaterFillerState::Off).unwrap();
+    let bottle = filler.as_off_mut().unwrap().take().unwrap();
+    assert_eq!(bottle.capacity, bottle.content)
+}

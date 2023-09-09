@@ -73,3 +73,75 @@ where
     }
 }
 impl<S> Error for WrongStateError<S> where S: Debug + Display {}
+
+/// Error for interacting with a state machine in the wrong state, using generic parameters
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GenericFromToError<StateEnum>
+where
+    StateEnum: 'static,
+{
+    WrongState {
+        from: StateEnum,
+        found: StateEnum,
+    },
+    NoTransition {
+        from: StateEnum,
+        to: StateEnum,
+        fallible: bool,
+    },
+}
+impl<S> Display for GenericFromToError<S>
+where
+    S: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GenericFromToError::WrongState { from, found } => write!(
+                f,
+                "Machine in the wrong state: requested {from}, found {found}"
+            ),
+            GenericFromToError::NoTransition { from, to, fallible } => {
+                write!(f, "Impossible transition from {from} to {to} requested")?;
+                if *fallible {
+                    write!(f, "(a fallible transition exist)")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+impl<S> Error for GenericFromToError<S> where S: Debug + Display {}
+
+/// Error for interacting with a state machine in the wrong state, using generic parameters
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum GenericToError<StateEnum>
+where
+    StateEnum: 'static,
+{
+    NoTransition {
+        found: StateEnum,
+        to: StateEnum,
+        fallible: bool,
+    },
+}
+impl<S> Display for GenericToError<S>
+where
+    S: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GenericToError::NoTransition {
+                found,
+                to,
+                fallible,
+            } => {
+                write!(f, "Impossible transition from {found} to {to}")?;
+                if *fallible {
+                    write!(f, "(a fallible transition exist)")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+impl<S> Error for GenericToError<S> where S: Debug + Display {}
