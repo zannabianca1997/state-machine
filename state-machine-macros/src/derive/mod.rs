@@ -454,6 +454,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         .to_tokens(&mut impl_items);
     }
 
+    // gereic fallible transforms
     if let Some(sm_error) = sm_error {
         let try_from_to_arms = states.iter().flat_map(
             |(
