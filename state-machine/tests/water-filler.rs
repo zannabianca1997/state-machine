@@ -14,6 +14,7 @@ struct Bottle {
     capacity: u8,
 }
 
+#[derive(Debug)]
 struct MissingBottle;
 
 impl TryTransitionTo<Filling> for Option<Bottle> {
@@ -32,6 +33,11 @@ impl TryTransitionTo<Filling> for Option<Bottle> {
 }
 
 struct Filling(Bottle);
+impl Filling {
+    fn fill(&mut self) {
+        self.0.content = self.0.capacity;
+    }
+}
 
 impl TransitionTo<Option<Bottle>> for Filling {
     fn transition(self) -> Option<Bottle> {
@@ -42,6 +48,14 @@ impl TransitionTo<Option<Bottle>> for Filling {
 #[test]
 fn cycle() {
     let mut filler = WaterFiller::Off(None);
-    filler.from_off_to_off().unwrap();
-    filler.try_from_off_to_off().unwrap().unwrap();
+    assert!(filler.is_off());
+    *filler.as_off_mut().unwrap() = Some(Bottle {
+        content: 0,
+        capacity: 8,
+    });
+    filler.try_from_off_to_filling().unwrap().unwrap();
+    filler.as_filling_mut().unwrap().fill();
+    filler.from_filling_to_off().unwrap();
+    let bottle = filler.as_off_mut().unwrap().take().unwrap();
+    assert_eq!(bottle.capacity, bottle.content)
 }

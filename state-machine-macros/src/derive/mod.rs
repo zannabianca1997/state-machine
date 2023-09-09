@@ -67,6 +67,38 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
     } in states.values()
     {
         let from_name_snake = from_name.to_string().to_case(Case::Snake);
+        // is_*, as_*, try_into_*, new_* methods
+        {
+            let is_fn_name = format_ident!("is_{from_name_snake}");
+            let as_fn_name = format_ident!("as_{from_name_snake}");
+            let as_mut_fn_name = format_ident!("as_{from_name_snake}_mut");
+            quote!(
+                fn #is_fn_name(&self) -> bool;
+                fn #as_fn_name(&self) -> ::std::option::Option<&#from_content>;
+                fn #as_mut_fn_name(&mut self) -> ::std::option::Option<&mut #from_content>;
+            )
+            .to_tokens(&mut tr_items);
+            quote!(
+                fn #is_fn_name(&self) -> bool {
+                    ::std::matches!(self, #name::#from_name(_))
+                }
+                fn #as_fn_name(&self) -> ::std::option::Option<&#from_content> {
+                    if let #name::#from_name(content) = self {
+                        ::std::option::Option::Some(content)
+                    } else {
+                        ::std::option::Option::None
+                    }
+                }
+                fn #as_mut_fn_name(&mut self) -> ::std::option::Option<&mut #from_content> {
+                    if let #name::#from_name(content) = self {
+                        ::std::option::Option::Some(content)
+                    } else {
+                        ::std::option::Option::None
+                    }
+                }
+            )
+            .to_tokens(&mut impl_items)
+        }
         // infallible transformations
         for dest in to {
             let State {
