@@ -54,7 +54,7 @@ impl StateEnum {
         let variants_names = variants.iter().map(|v| v.to_string());
 
         quote!(
-            #(#attrs)*
+            #(#[#attrs])*
             #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
             #vis enum #name {
                 #(#variants),*
