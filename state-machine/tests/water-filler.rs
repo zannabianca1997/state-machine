@@ -1,7 +1,9 @@
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(never_type)]
 use state_machine::{StateMachine, TransitionTo, TryTransitionTo};
 
 #[derive(StateMachine)]
+#[state_machine(error = "MissingBottle")]
 enum WaterFiller {
     #[state(try_to(Filling))]
     Off(Option<Bottle>),
@@ -16,6 +18,11 @@ struct Bottle {
 
 #[derive(Debug)]
 struct MissingBottle;
+impl From<!> for MissingBottle {
+    fn from(value: !) -> Self {
+        value
+    }
+}
 
 impl TryTransitionTo<Filling> for Option<Bottle> {
     type Error = MissingBottle;
@@ -54,9 +61,25 @@ fn cycle() {
         capacity: 8,
     });
     filler.try_from_off_to_filling().unwrap().unwrap();
-    assert_eq!(filler.state(), WaterFillerState::Off);
+    assert_eq!(filler.state(), WaterFillerState::Filling);
     filler.as_filling_mut().unwrap().fill();
     filler.from_filling_to_off().unwrap();
+    let bottle = filler.as_off_mut().unwrap().take().unwrap();
+    assert_eq!(bottle.capacity, bottle.content)
+}
+
+#[test]
+fn cycle_with_global_transitions() {
+    let mut filler = WaterFiller::Off(None);
+    assert!(filler.is_off());
+    *filler.as_off_mut().unwrap() = Some(Bottle {
+        content: 0,
+        capacity: 8,
+    });
+    filler.try_to_filling().unwrap().unwrap();
+    assert_eq!(filler.state(), WaterFillerState::Filling);
+    filler.as_filling_mut().unwrap().fill();
+    filler.to_off().unwrap();
     let bottle = filler.as_off_mut().unwrap().take().unwrap();
     assert_eq!(bottle.capacity, bottle.content)
 }

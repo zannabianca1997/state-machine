@@ -58,6 +58,7 @@ impl StateEnum {
                 #(#variants),*
             }
 
+            #[automatically_derived]
             impl ::std::fmt::Display for #name {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     ::std::write!(
@@ -85,6 +86,8 @@ struct State {
     to: BTreeSet<Ident>,
     /// The fallible transitions this state can undergo
     try_to: BTreeSet<Ident>,
+    /// The error for the fallible transition from any state to this one
+    error: Option<Type>,
 }
 
 pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
@@ -126,11 +129,13 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         .to_tokens(&mut impl_items);
     }
 
+    // state-specific methods
     for State {
         name: from_name,
         content: from_content,
         to,
         try_to,
+        error,
     } in states.values()
     {
         let from_name_snake = from_name.to_string().to_case(Case::Snake);
@@ -265,6 +270,92 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
             )
             .to_tokens(&mut impl_items);
         }
+
+        // global infallible transform to this state
+        {
+            // some renaming to make code cleaner
+            let to_name = from_name;
+            let to_name_snake = &from_name_snake;
+
+            let fn_name = format_ident!("to_{to_name_snake}");
+            let fn_name_str = fn_name.to_string();
+            let fn_return = quote!(::std::result::Result<&mut Self, ::state_machine::WrongStateError<Self::State>>);
+
+            let from_names: Vec<_> = states
+                .values()
+                .filter_map(|State { name, to, .. }| to.contains(to_name).then_some(name))
+                .collect();
+            let from_funs = from_names.iter().map(|n| {
+                format_ident!(
+                    "from_{}_to_{to_name_snake}",
+                    n.to_string().to_case(Case::Snake)
+                )
+            });
+
+            // fn declaration
+            quote!(
+                fn #fn_name(&mut self)->#fn_return;
+            )
+            .to_tokens(&mut tr_items);
+
+            // fn impl
+            quote!(
+                fn #fn_name(&mut self)->#fn_return {
+                    match self {
+                        #(Self::#from_names(_) => ::std::result::Result::Ok(self.#from_funs().unwrap()),)*
+                        _ => ::std::result::Result::Err(::state_machine::WrongStateError {
+                            method: #fn_name_str,
+                            found: self.state(),
+                            allowed: &[#(#se_name::#from_names),*],
+                        }),
+                    }
+                }
+            )
+            .to_tokens(&mut impl_items);
+        }
+
+        // global fallible transform to this state
+        if let Some(error) = error {
+            // some renaming to make code cleaner
+            let to_name = from_name;
+            let to_name_snake = &from_name_snake;
+
+            let fn_name = format_ident!("try_to_{to_name_snake}");
+            let fn_name_str = fn_name.to_string();
+            let fn_return = quote!(::std::result::Result<::std::result::Result<&mut Self, #error>, ::state_machine::WrongStateError<Self::State>>);
+
+            let from_names: Vec<_> = states
+                .values()
+                .filter_map(|State { name, try_to, .. }| try_to.contains(to_name).then_some(name))
+                .collect();
+            let from_funs = from_names.iter().map(|n| {
+                format_ident!(
+                    "try_from_{}_to_{to_name_snake}",
+                    n.to_string().to_case(Case::Snake)
+                )
+            });
+
+            // fn declaration
+            quote!(
+                fn #fn_name(&mut self)->#fn_return;
+            )
+            .to_tokens(&mut tr_items);
+
+            // fn impl
+            quote!(
+                fn #fn_name(&mut self)->#fn_return {
+                    match self {
+                        #(Self::#from_names(_) => ::std::result::Result::Ok(self.#from_funs().unwrap().map_err(::std::convert::Into::into)),)*
+                        _ => ::std::result::Result::Err(::state_machine::WrongStateError {
+                            method: #fn_name_str,
+                            found: self.state(),
+                            allowed: &[#(#se_name::#from_names),*],
+                        }),
+                    }
+                }
+            )
+            .to_tokens(&mut impl_items);
+        }
     }
 
     let mut tokens = quote!(
@@ -273,6 +364,7 @@ pub(crate) fn state_machine(input: &syn::DeriveInput) -> TokenStream {
         }
 
         #[automatically_derived]
+        #[allow(unreachable_code)]
         impl #tr_name for #name {
             #impl_items
         }

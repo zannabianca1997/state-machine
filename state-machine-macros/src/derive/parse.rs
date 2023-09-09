@@ -31,6 +31,8 @@ struct StateMachineDef {
     ext_trait: ExtTraitDef,
     #[darling(default)]
     state_enum: StateEnumDef,
+    #[darling(default)]
+    error: Option<Type>,
 }
 
 impl TryFrom<StateMachineDef> for StateMachine {
@@ -43,6 +45,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
             data,
             ext_trait,
             state_enum,
+            error: sm_error,
         }: StateMachineDef,
     ) -> Result<Self, Self::Error> {
         let mut errs = Accumulator::default();
@@ -56,6 +59,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
                      mut fields,
                      to,
                      try_to,
+                     error,
                  }| {
                     (ident.clone(), {
                         let to: BTreeSet<_> = to
@@ -73,6 +77,7 @@ impl TryFrom<StateMachineDef> for StateMachine {
                             content: fields.fields.pop().unwrap(),
                             to,
                             try_to,
+                            error: error.or_else(|| sm_error.clone()),
                         }
                     })
                 },
@@ -139,6 +144,8 @@ struct StateDef {
     to: Vec<ToDef>,
     #[darling(multiple)]
     try_to: Vec<ToDef>,
+    #[darling(default)]
+    error: Option<Type>,
 }
 
 /// A transition of the machine
@@ -222,11 +229,13 @@ mod tests {
                 data,
                 ext_trait,
                 state_enum,
+                error,
             } = StateMachineDef::from_derive_input(&input).unwrap();
             assert_eq!(ident, "Sm");
             assert_eq!(vis, Visibility::Inherited);
             assert_eq!(ext_trait, Default::default());
             assert_eq!(state_enum, Default::default());
+            assert!(error.is_none());
             assert!(data.is_enum());
             let [a] = &data.take_enum().unwrap()[..] else {
                 panic!()

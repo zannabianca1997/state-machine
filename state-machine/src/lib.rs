@@ -1,7 +1,7 @@
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(never_type)]
 
 use std::{
-    convert::Infallible,
     error::Error,
     fmt::{Debug, Display},
 };
@@ -38,7 +38,7 @@ impl<T, D> TryTransitionTo<D> for T
 where
     T: TransitionTo<D>,
 {
-    type Error = Infallible;
+    type Error = !;
 
     fn try_transition(&self) -> Result<impl FnOnce(Self) -> D, Self::Error>
     where
